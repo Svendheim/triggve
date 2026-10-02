@@ -1,0 +1,9 @@
+samples/
+*.wav
+*.flac
+*.aiff
+*.mp3
+*.rpp-bak
+*.rpp~
+*.reapeaks
+.DS_Store
