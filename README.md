@@ -21,7 +21,7 @@ A lightweight, zero-latency REAPER JSFX drum replacement and sample triggering p
 
 ## Development & Roadmap
 
-- [x] v0.1: Initial architecture, agent instructions (`AGENTS.md`), and core scope
+- [] v0.1: Initial architecture, agent instructions (`AGENTS.md`), and core scope
 - [ ] v0.2: Core peak detection, hysteresis thresholding, and trigger pulse generation
 - [ ] v0.3: JSFX sample buffer loading and polyphonic voice manager
 - [ ] v0.4: Round-robin shuffle logic and GUI controls (threshold, retrigger time, gain)
