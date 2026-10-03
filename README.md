@@ -28,4 +28,4 @@ A lightweight, zero-latency REAPER JSFX drum replacement and sample triggering p
 
 ## License
 
-MIT
+Not decided, but GPL or MIT I guess.
