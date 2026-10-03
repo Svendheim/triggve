@@ -1,0 +1,119 @@
+desc:Drum Trigger (v0.2 transient detection)
+author:Stein
+tags: drums trigger
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+// ---------------------------------------------------------------------------
+// v0.2 SCOPE
+//   * Peak/envelope detection of incoming audio
+//   * Hysteresis thresholding (fire high, re-arm low)
+//   * Retrigger holdoff (suppression window)
+//   * Internal "trigger pulse" flag + audible test click
+// No sample loading or playback yet.
+// ---------------------------------------------------------------------------
+
+slider1:-18<-60,0,0.1>Threshold (dB)
+slider2:1<0.1,50,0.1>Envelope Attack (ms)
+slider3:80<5,1000,1>Envelope Release (ms)
+slider4:40<0,500,1>Retrigger Holdoff (ms)
+slider5:0.3<0,1,0.01>Test Click Level (0 = off)
+slider6:6<0,24,1>Hysteresis (dB)
+
+@init
+
+// Detector state
+env = 0;            // one-pole envelope follower value
+armed = 1;          // 1 = ready to fire, 0 = waiting for re-arm
+holdoff_counter = 0;
+trigger = 0;        // 1 on the sample a trigger fires
+trigger_count = 0;
+
+// Audible test marker
+click = 0;
+
+// LED hold (so a 1-sample trigger is still visible)
+led = 0;
+
+// Derived values (recomputed whenever sliders change)
+thr = 10 ^ (slider1 / 20);
+thr_low = thr * 10 ^ (-slider6 / 20);
+attack_coef = exp(-1 / (srate * slider2 / 1000));
+release_coef = exp(-1 / (srate * slider3 / 1000));
+holdoff_samples = slider4 / 1000 * srate;
+click_coef = exp(-1 / (srate * 0.005)); // ~5 ms click decay
+led_coef = exp(-1 / (srate * 0.2));     // ~200 ms LED hold
+
+@slider
+
+thr = 10 ^ (slider1 / 20);
+thr_low = thr * 10 ^ (-slider6 / 20);
+attack_coef = exp(-1 / (srate * slider2 / 1000));
+release_coef = exp(-1 / (srate * slider3 / 1000));
+holdoff_samples = slider4 / 1000 * srate;
+
+@sample
+
+// --- input peak (max of both channels) ---
+in = abs(spl0);
+in = max(in, abs(spl1));
+
+// --- envelope follower: fast attack, slow release ---
+coef = (in > env) ? attack_coef : release_coef;
+env = coef * env + (1 - coef) * in;
+
+// --- holdoff countdown ---
+holdoff_counter > 0 ? (holdoff_counter -= 1);
+
+// --- re-arm only once the signal has fallen below the lower threshold ---
+env < thr_low ? (armed = 1);
+
+// --- fire a trigger? ---
+trigger = 0;
+(env >= thr) && armed && (holdoff_counter <= 0) ? (
+  trigger = 1;
+  armed = 0;
+  holdoff_counter = holdoff_samples;
+  trigger_count += 1;
+  click = slider5;
+);
+
+// --- decay the test click, hold the LED ---
+click = click * click_coef;
+led = max(led * led_coef, trigger);
+
+// --- output: pass audio through untouched, add optional test click ---
+spl0 = spl0 + click;
+spl1 = spl1 + click;
+
+@gfx
+
+gfx_clear = 1;
+gfx_set(0.08, 0.08, 0.10, 1);
+gfx_rect(0, 0, gfx_w, gfx_h);
+
+// Trigger LED (bright green while held)
+gfx_set(0.2, 0.3 + 0.7 * led, 0.3, 1);
+gfx_rect(10, 8, 14, 14);
+
+// Input level meter, normalised so a full bar == threshold
+lvl = env / max(thr, 0.000001);
+lvl = min(lvl, 2);
+mw = (lvl / 2) * (gfx_w - 20);
+gfx_set(0.25, 0.6, 0.9, 1);
+gfx_rect(10, 30, mw, 16);
+
+// Orange threshold marker
+gfx_set(1.0, 0.65, 0.1, 1);
+gfx_rect(10 + (gfx_w - 20) / 2, 30, 2, 16);
+
+// Readouts
+gfx_set(1, 1, 1, 1);
+gfx_x = 32;
+gfx_y = 6;
+gfx_printf("Triggers: %d", trigger_count);
+gfx_x = 10;
+gfx_y = 52;
+gfx_printf("Env: %.4f   Thr: %.4f   Armed: %d", env, thr, armed);
