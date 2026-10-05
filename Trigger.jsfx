@@ -25,10 +25,9 @@ slider2:1<0.1,50,0.1>Envelope Attack (ms)
 slider3:5<1,45,1>Envelope Release (ms)
 slider4:20<1,100,1>Retrigger Holdoff (ms)
 slider5:6<0,24,1>Hysteresis (dB)
-slider6:1<0,1,0.01>Sample Level
-slider7:1<0,1,0.01>Mix
-slider8:2<0,2,1{Single (slot 1),Round-robin,Random}>Sample Selection
-slider9:0<-24,24,0.1>Output Gain (dB)
+slider6:1<0,1,0.01>Mix
+slider7:2<0,2,1{Single (slot 1),Round-robin,Random}>Sample Selection
+slider8:0<-24,24,0.1>Output Gain (dB)
 
 @init
 
@@ -95,10 +94,9 @@ attack_coef = exp(-1 / (srate * slider2 / 1000));
 release_coef = exp(-1 / (srate * slider3 / 1000));
 holdoff_samples = slider4 / 1000 * srate;
 led_coef = exp(-1 / (srate * 0.2));     // ~200 ms LED hold
-sample_level = slider6;
 pk_coef = exp(-1 / (srate * 0.15));       // ~150 ms peak-follower decay
 peak_window = (srate * 0.025) | 0;        // ~25 ms per-voice peak tracking
-out_gain = 10 ^ (slider9 / 20);
+out_gain = 10 ^ (slider8 / 20);
 
 // Transport fade: ramp the voice output up/down over ~5 ms on stop/play so
 // the host's hard stop becomes a smooth fade instead of a click.
@@ -149,9 +147,9 @@ function first_empty() local(i) (
   i;
 );
 
-// Choose the next slot according to slider8 (selection mode).
+// Choose the next slot according to slider7 (selection mode).
 // Writes the result to the global chosen_slot (-1 = nothing to play).
-//   slider8 0 = Single (slot 1), 1 = Round-robin, 2 = Random (no repeat)
+//   slider7 0 = Single (slot 1), 1 = Round-robin, 2 = Random (no repeat)
 function select_slot() local(i, j, n, k, r, c) (
   chosen_slot = -1;
 
@@ -166,10 +164,10 @@ function select_slot() local(i, j, n, k, r, c) (
     i = 0;
     while (i < SLOTS && !s_ok[i]) ( i += 1; );
     chosen_slot = i;
-  ) : slider8 == 0 ? (
+  ) : slider7 == 0 ? (
     // Single: slot 1 (top-left) if loaded
     chosen_slot = s_ok[0] ? 0 : -1;
-  ) : slider8 == 1 ? (
+  ) : slider7 == 1 ? (
     // Round-robin: first loaded slot strictly after last_slot, wrapping
     j = 1;
     loop(SLOTS, (
@@ -283,7 +281,7 @@ function start_voice(slot) local(i, vfree, oldest) (
   );
   v_active[vfree] = 1;
   v_pos[vfree] = 0;
-  v_gain[vfree] = trig_vel * sample_level;
+  v_gain[vfree] = trig_vel;
   v_slot[vfree] = slot;
   v_peak[vfree] = pk;              // seed with the peak found so far
   v_track[vfree] = peak_window;    // keep refining for ~25 ms
@@ -298,10 +296,9 @@ thr_low = thr * 10 ^ (-slider5 / 20);
 attack_coef = exp(-1 / (srate * slider2 / 1000));
 release_coef = exp(-1 / (srate * slider3 / 1000));
 holdoff_samples = slider4 / 1000 * srate;
-sample_level = slider6;
 pk_coef = exp(-1 / (srate * 0.15));       // ~150 ms peak-follower decay
 peak_window = (srate * 0.025) | 0;        // ~25 ms per-voice peak tracking
-out_gain = 10 ^ (slider9 / 20);
+out_gain = 10 ^ (slider8 / 20);
 fade_coef = exp(-1 / (srate * 0.005));
 
 @sample
@@ -360,7 +357,7 @@ loop(VOICES, (
     // keep refining this voice's velocity from the input peak for a short time
     v_track[vi] > 0 ? (
       v_peak[vi] = max(v_peak[vi], in);
-      v_gain[vi] = min(v_peak[vi], 1) * sample_level;
+      v_gain[vi] = min(v_peak[vi], 1);
       v_track[vi] -= 1;
     );
     s_ok[v_slot[vi]] ? (
@@ -406,7 +403,7 @@ play_gain = fade_coef * play_gain + (1 - fade_coef) * play_target;
 );
 
 // --- linear wet/dry mix (coeffs sum to 1, so the blend stays within full scale) ---
-wet = slider7;
+wet = slider6;
 spl0 = (1 - wet) * dry_l + wet * softclip(vosl * play_gain * out_gain);
 spl1 = (1 - wet) * dry_r + wet * softclip(vosr * play_gain * out_gain);
 
@@ -519,8 +516,8 @@ gfx_x = 12; gfx_y = 42;
 gfx_drawstr("Drop a WAV onto a slot. Right-click or click x to unload.");
 
 // selection mode + last slot
-slider8 == 0 ? strcpy(#selname, "Single (slot 1)") :
-slider8 == 1 ? strcpy(#selname, "Round-robin") :
+slider7 == 0 ? strcpy(#selname, "Single (slot 1)") :
+slider7 == 1 ? strcpy(#selname, "Round-robin") :
                 strcpy(#selname, "Random (no repeat)");
 last_slot < 0 ? strcpy(#lastname, "-") : sprintf(#lastname, "%d", last_slot+1);
 sprintf(#buf, "Mode: %s    Last slot: %s", #selname, #lastname);
@@ -576,7 +573,7 @@ loop(SLOTS, (
 
   // mark the active slot: PLAY in Single mode, LAST for the most recent pick
   #marker = "";
-  slider8 == 0 ? (
+  slider7 == 0 ? (
     (i == 0 && s_ok[0]) ? ( #marker = "PLAY"; );
   ) : (
     (i == last_slot) ? ( #marker = "LAST"; );
