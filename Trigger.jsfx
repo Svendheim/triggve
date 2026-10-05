@@ -1,4 +1,4 @@
-desc:Drum Trigger (v0.3b sample playback)
+desc:Drum Trigger (v0.31 sample replacement)
 author:Stein
 tags: drums trigger instrument
 in_pin:left input
@@ -8,7 +8,7 @@ out_pin:right output
 options:maxmem=20000000
 
 // ---------------------------------------------------------------------------
-// v0.3b SCOPE
+// v0.31 SCOPE
 //   * Existing v0.2 transient detector
 //   * 8-slot sample pool: drag & drop WAV files onto slots
 //   * Per-slot loaded indicator + length / channels / sample-rate readout
@@ -16,7 +16,7 @@ options:maxmem=20000000
 //   * Slots persist in the project via @serialize
 //   * 16-voice polyphonic playback from slot 1 (top-left)
 //   * Linear velocity scaling from the transient envelope
-//   * Output = optional input passthrough + samples + test click
+//   * Defaults to FULL REPLACEMENT: input muted, only the sample is heard
 // Round-robin across all slots is planned for v0.4.
 // ---------------------------------------------------------------------------
 
@@ -24,10 +24,9 @@ slider1:-18<-60,0,0.1>Threshold (dB)
 slider2:1<0.1,50,0.1>Envelope Attack (ms)
 slider3:80<5,1000,1>Envelope Release (ms)
 slider4:40<0,500,1>Retrigger Holdoff (ms)
-slider5:0.3<0,1,0.01>Test Click Level (0 = off)
-slider6:6<0,24,1>Hysteresis (dB)
-slider7:0.8<0,1,0.01>Sample Level
-slider8:1<0,1,1>Pass Input (1 = on)
+slider5:6<0,24,1>Hysteresis (dB)
+slider6:1<0,1,0.01>Sample Level
+slider7:0<0,1,1>Pass Input (1 = on)
 
 @init
 
@@ -78,18 +77,16 @@ armed = 1;
 holdoff_counter = 0;
 trigger = 0;
 trigger_count = 0;
-click = 0;
 led = 0;
 
 // Derived values (recomputed whenever sliders change)
 thr = 10 ^ (slider1 / 20);
-thr_low = thr * 10 ^ (-slider6 / 20);
+thr_low = thr * 10 ^ (-slider5 / 20);
 attack_coef = exp(-1 / (srate * slider2 / 1000));
 release_coef = exp(-1 / (srate * slider3 / 1000));
 holdoff_samples = slider4 / 1000 * srate;
-click_coef = exp(-1 / (srate * 0.005)); // ~5 ms click decay
 led_coef = exp(-1 / (srate * 0.2));     // ~200 ms LED hold
-sample_level = slider7;
+sample_level = slider6;
 
 // Store a loaded file's path into the matching named string slot.
 function set_path(idx, path) (
@@ -223,11 +220,11 @@ function start_voice() local(i, vfree, oldest) (
 @slider
 
 thr = 10 ^ (slider1 / 20);
-thr_low = thr * 10 ^ (-slider6 / 20);
+thr_low = thr * 10 ^ (-slider5 / 20);
 attack_coef = exp(-1 / (srate * slider2 / 1000));
 release_coef = exp(-1 / (srate * slider3 / 1000));
 holdoff_samples = slider4 / 1000 * srate;
-sample_level = slider7;
+sample_level = slider6;
 
 @sample
 
@@ -252,17 +249,15 @@ trigger = 0;
   armed = 0;
   holdoff_counter = holdoff_samples;
   trigger_count += 1;
-  click = slider5;
   trig_vel = min(env, 1);
   s_ok[PLAY_SLOT] ? start_voice();
 );
 
-// --- decay the test click, hold the LED ---
-click = click * click_coef;
+// --- hold the LED ---
 led = max(led * led_coef, trigger);
 
-// --- pass-through gating ---
-slider8 ? 0 : ( spl0 = 0; spl1 = 0; );
+// --- pass-through gating (default 0 = full replacement) ---
+slider7 ? 0 : ( spl0 = 0; spl1 = 0; );
 
 // --- polyphonic voice playback (sum into the output) ---
 vi = 0;
@@ -292,10 +287,6 @@ loop(VOICES, (
   );
   vi += 1;
 ));
-
-// --- add the optional test click ---
-spl0 = spl0 + click;
-spl1 = spl1 + click;
 
 @serialize
 
@@ -397,7 +388,7 @@ rclick && hover >= 0 ? clear_slot(hover);
 // ---- header ----
 gfx_set(0.90, 0.92, 0.96, 1);
 gfx_x = 10; gfx_y = 8;
-gfx_drawstr("Trigger - v0.3b sample playback");
+gfx_drawstr("Trigger - v0.31 sample replacement");
 
 gfx_set(0.55, 0.60, 0.68, 1);
 gfx_x = 10; gfx_y = 30;
