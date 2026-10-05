@@ -14,7 +14,7 @@ A lightweight, low-latency REAPER JSFX drum replacement and sample triggering pl
   - **Single (slot 1)** — always the first slot.
   - **Round-robin** — cycles through loaded slots in order, wrapping and skipping empties.
   - **Random** — uniform pick among loaded slots, never the same as the previous hit.
-- **Polyphonic Playback**: 16 independent voices so sample tails ring out naturally without hard clipping.
+- **Polyphonic Playback**: 96 independent voices so sample tails ring out naturally without hard clipping or voice stealing.
 - **Dynamic Velocity Scaling**: Plays each sample at the hit's **peak level** (measured over a short window, not at the threshold crossing), so triggered samples match the source loudness.
 - **Makeup Output Gain**: A ±24 dB output gain to match quiet sources, protected by the soft-clip ceiling.
 - **Wet/Dry Mix**: A linear blend between the dry input and triggered samples (0 = original only, 1 = samples only), so you can dial in exactly how much of the source to keep.
@@ -107,7 +107,8 @@ Notes:
 - [x] v0.31: Polyphonic 16-voice playback, linear velocity, full-replacement default
 - [x] v0.4: Single / Round-robin / Random selection modes, larger readable GUI
 - [x] v0.4.1: Output safety ceiling (soft-clip) + click-free transport stop
-- [ ] Settings pass: review detector defaults and velocity behavior (possibly threshold-relative)
+- [x] v0.5-beta: Peak-accurate velocity, Output Gain, wet/dry Mix, 96-voice pool
+- [x] Settings pass: detector defaults confirmed good (Threshold −18, Attack 1 ms, Release 5 ms, Holdoff 20 ms, Hysteresis 6 dB)
 - [ ] Onset/derivative detection to decouple retriggering from envelope release time
 - [ ] Optional: longer no-immediate-repeat window and/or per-slot weighting
 

@@ -52,7 +52,7 @@ function setup_geometry() (
   s_err  = META_BASE + SLOTS*4;    // load failure flag
 
   // ---- voice pool (v0.3b) ----
-  VOICES = 16;
+  VOICES = 96;
   PLAY_SLOT = 0;                   // slot 1 (top-left) = "Single" selection mode
   V_BASE = META_BASE + SLOTS*5;
   v_active = V_BASE;
