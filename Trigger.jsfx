@@ -1,18 +1,20 @@
-desc:Drum Trigger (v0.2 transient detection)
+desc:Drum Trigger (v0.3a sample loader)
 author:Stein
-tags: drums trigger
+tags: drums trigger instrument
 in_pin:left input
 in_pin:right input
 out_pin:left output
 out_pin:right output
+options:maxmem=20000000
 
 // ---------------------------------------------------------------------------
-// v0.2 SCOPE
-//   * Peak/envelope detection of incoming audio
-//   * Hysteresis thresholding (fire high, re-arm low)
-//   * Retrigger holdoff (suppression window)
-//   * Internal "trigger pulse" flag + audible test click
-// No sample loading or playback yet.
+// v0.3a SCOPE
+//   * Existing v0.2 transient detector (unchanged)
+//   * 8-slot sample pool: drag & drop WAV files onto slots
+//   * Per-slot loaded indicator + length / channels / sample-rate readout
+//   * Unload: right-click a slot, click its "x", or press "Clear All"
+//   * Slots persist in the project via @serialize
+// No sample playback yet (voice engine arrives in v0.3b).
 // ---------------------------------------------------------------------------
 
 slider1:-18<-60,0,0.1>Threshold (dB)
@@ -24,17 +26,39 @@ slider6:6<0,24,1>Hysteresis (dB)
 
 @init
 
-// Detector state
-env = 0;            // one-pole envelope follower value
-armed = 1;          // 1 = ready to fire, 0 = waiting for re-arm
+// =========================================================================
+// Helper functions (defined in @init so they are visible to all sections)
+// =========================================================================
+
+// Compute the memory layout. Safe to call from @init or @serialize because
+// @serialize may run before @init on project load.
+function setup_geometry() (
+  SLOTS = 8;
+  MAXLEN_SEC = 4;
+  SLOT_STRIDE = (MAXLEN_SEC * srate * 2) | 0;   // stereo frames reserved per slot
+  AUDIO_BASE = 0;
+  META_BASE = (SLOTS * SLOT_STRIDE) | 0;
+
+  // per-slot metadata arrays (in local memory)
+  s_ok   = META_BASE;
+  s_len  = META_BASE + SLOTS;      // frames
+  s_nch  = META_BASE + SLOTS*2;    // 1 or 2
+  s_rate = META_BASE + SLOTS*3;    // sample rate the slot was resampled to
+  s_err  = META_BASE + SLOTS*4;    // load failure flag
+);
+
+setup_geometry();
+
+// ---- GUI state -----------------------------------------------------------
+prev_cap = 0;
+
+// ---- detector state ------------------------------------------------------
+env = 0;
+armed = 1;
 holdoff_counter = 0;
-trigger = 0;        // 1 on the sample a trigger fires
+trigger = 0;
 trigger_count = 0;
-
-// Audible test marker
 click = 0;
-
-// LED hold (so a 1-sample trigger is still visible)
 led = 0;
 
 // Derived values (recomputed whenever sliders change)
@@ -45,6 +69,109 @@ release_coef = exp(-1 / (srate * slider3 / 1000));
 holdoff_samples = slider4 / 1000 * srate;
 click_coef = exp(-1 / (srate * 0.005)); // ~5 ms click decay
 led_coef = exp(-1 / (srate * 0.2));     // ~200 ms LED hold
+
+// Store a loaded file's path into the matching named string slot.
+function set_path(idx, path) (
+  idx == 0 ? strcpy(#path0, path) :
+  idx == 1 ? strcpy(#path1, path) :
+  idx == 2 ? strcpy(#path2, path) :
+  idx == 3 ? strcpy(#path3, path) :
+  idx == 4 ? strcpy(#path4, path) :
+  idx == 5 ? strcpy(#path5, path) :
+  idx == 6 ? strcpy(#path6, path) :
+             strcpy(#path7, path);
+);
+
+// Clear one slot (metadata + stored path).
+function clear_slot(idx) (
+  s_ok[idx] = 0;
+  s_len[idx] = 0;
+  s_nch[idx] = 0;
+  s_rate[idx] = 0;
+  s_err[idx] = 0;
+  idx == 0 ? strcpy(#path0, "") :
+  idx == 1 ? strcpy(#path1, "") :
+  idx == 2 ? strcpy(#path2, "") :
+  idx == 3 ? strcpy(#path3, "") :
+  idx == 4 ? strcpy(#path4, "") :
+  idx == 5 ? strcpy(#path5, "") :
+  idx == 6 ? strcpy(#path6, "") :
+             strcpy(#path7, "");
+);
+
+// Clear every slot.
+function clear_all() local(i) (
+  i = 0;
+  loop(SLOTS, ( clear_slot(i); i += 1; ));
+);
+
+// Index of the first empty slot, or SLOTS if all are full.
+function first_empty() local(i) (
+  i = 0;
+  while (i < SLOTS && s_ok[i]) ( i += 1; );
+  i;
+);
+
+// Put a short display name (basename, max 22 chars) of slot idx into #disp.
+function slot_disp(idx) local(len, k, c, done, p) (
+  idx == 0 ? strcpy(#disp, #path0) :
+  idx == 1 ? strcpy(#disp, #path1) :
+  idx == 2 ? strcpy(#disp, #path2) :
+  idx == 3 ? strcpy(#disp, #path3) :
+  idx == 4 ? strcpy(#disp, #path4) :
+  idx == 5 ? strcpy(#disp, #path5) :
+  idx == 6 ? strcpy(#disp, #path6) :
+             strcpy(#disp, #path7);
+  len = strlen(#disp);
+  k = 0; done = 0; p = -1;
+  while (k < len && !done) (
+    c = str_getchar(#disp, -(k+1));
+    (c == 47 || c == 92) ? ( p = len - k; done = 1; );
+    k += 1;
+  );
+  p > 0 ? ( strcpy_substr(#tmpname, #disp, p, -1); strcpy(#disp, #tmpname); );
+  strlen(#disp) > 22 ? str_setlen(#disp, 22);
+);
+
+// Load a WAV/OGG file into slot idx. Resamples to the project rate.
+// Must not be called from @sample (does file I/O).
+function load_slot(idx, path) local(fh, nch, sr, avail, frames, cap, base) (
+  base = AUDIO_BASE + idx*SLOT_STRIDE;
+  s_ok[idx] = 0;
+  s_err[idx] = 0;
+  s_len[idx] = 0;
+  s_nch[idx] = 0;
+  s_rate[idx] = 0;
+
+  fh = file_open(path);
+  fh < 0 ? (
+    s_err[idx] = 1;
+  ) : (
+    // 'rqsr' asks file_riff to resample to sr (REAPER 6.29+).
+    // After the call, nch is the real channel count (1 or 2) on success.
+    nch = 'rqsr';
+    sr = srate;
+    file_riff(fh, nch, sr);
+    (nch == 1 || nch == 2) ? (
+      avail = file_avail(fh);
+      frames = (avail / nch) | 0;
+      cap = (MAXLEN_SEC * srate) | 0;
+      frames > cap ? frames = cap;
+      frames > 0 ? (
+        file_mem(fh, base, frames*nch);
+        s_len[idx] = frames;
+        s_nch[idx] = nch;
+        s_rate[idx] = sr;
+        s_ok[idx] = 1;
+      ) : (
+        s_err[idx] = 1;
+      );
+    ) : (
+      s_err[idx] = 1;
+    );
+    file_close(fh);
+  );
+);
 
 @slider
 
@@ -88,32 +215,182 @@ led = max(led * led_coef, trigger);
 spl0 = spl0 + click;
 spl1 = spl1 + click;
 
-@gfx
+@serialize
 
+// Detect read mode (loading a project) vs write mode (saving one).
+reading = file_avail(0) >= 0;
+
+// @serialize may run before @init, so make sure the layout is ready.
+setup_geometry();
+
+file_string(0, #path0);
+file_string(0, #path1);
+file_string(0, #path2);
+file_string(0, #path3);
+file_string(0, #path4);
+file_string(0, #path5);
+file_string(0, #path6);
+file_string(0, #path7);
+
+// On load, re-open any saved samples so slots survive project reloads.
+reading ? (
+  strlen(#path0) > 0 ? load_slot(0, #path0);
+  strlen(#path1) > 0 ? load_slot(1, #path1);
+  strlen(#path2) > 0 ? load_slot(2, #path2);
+  strlen(#path3) > 0 ? load_slot(3, #path3);
+  strlen(#path4) > 0 ? load_slot(4, #path4);
+  strlen(#path5) > 0 ? load_slot(5, #path5);
+  strlen(#path6) > 0 ? load_slot(6, #path6);
+  strlen(#path7) > 0 ? load_slot(7, #path7);
+);
+
+@gfx 640 420
+
+// ---- mouse button edge detection ----
+lmb = mouse_cap & 1;
+rmb = mouse_cap & 2;
+lclick = lmb && !(prev_cap & 1);
+rclick = rmb && !(prev_cap & 2);
+prev_cap = mouse_cap;
+
+// ---- background ----
 gfx_clear = 1;
-gfx_set(0.08, 0.08, 0.10, 1);
+gfx_setfont(1, "Arial", 12);
+gfx_set(0.07, 0.08, 0.10, 1);
 gfx_rect(0, 0, gfx_w, gfx_h);
 
-// Trigger LED (bright green while held)
-gfx_set(0.2, 0.3 + 0.7 * led, 0.3, 1);
-gfx_rect(10, 8, 14, 14);
+// ---- slot grid layout ----
+pad = 8;
+gap = 6;
+cols = 4;
+rows = 2;
+top_h = 64;
+gx = pad;
+gy = top_h + pad;
+gw = gfx_w - pad*2;
+gh = gfx_h - gy - pad;
+cw = (gw - (cols-1)*gap) / cols;
+ch = (gh - (rows-1)*gap) / rows;
 
-// Input level meter, normalised so a full bar == threshold
-lvl = env / max(thr, 0.000001);
-lvl = min(lvl, 2);
-mw = (lvl / 2) * (gfx_w - 20);
-gfx_set(0.25, 0.6, 0.9, 1);
-gfx_rect(10, 30, mw, 16);
+// ---- hover / x-button hit testing ----
+hover = -1;
+xbtn = -1;
+i = 0;
+loop(SLOTS, (
+  col = i - (((i/cols) | 0) * cols);
+  row = (i/cols) | 0;
+  x = gx + col*(cw+gap);
+  y = gy + row*(ch+gap);
+  inside = (mouse_x >= x && mouse_x < x+cw && mouse_y >= y && mouse_y < y+ch);
+  inside ? (hover = i);
+  (inside && s_ok[i] && mouse_x >= x+cw-18 && mouse_x < x+cw-4 && mouse_y >= y+4 && mouse_y < y+18)
+    ? (xbtn = i);
+  i += 1;
+));
 
-// Orange threshold marker
-gfx_set(1.0, 0.65, 0.1, 1);
-gfx_rect(10 + (gfx_w - 20) / 2, 30, 2, 16);
+// ---- Clear All button hit testing ----
+ca_x = gfx_w - 92;
+ca_y = 8;
+ca_w = 84;
+ca_h = 20;
+over_ca = (mouse_x >= ca_x && mouse_x < ca_x+ca_w && mouse_y >= ca_y && mouse_y < ca_y+ca_h);
 
-// Readouts
-gfx_set(1, 1, 1, 1);
-gfx_x = 32;
-gfx_y = 6;
-gfx_printf("Triggers: %d", trigger_count);
-gfx_x = 10;
-gfx_y = 52;
-gfx_printf("Env: %.4f   Thr: %.4f   Armed: %d", env, thr, armed);
+// ---- handle dropped files ----
+n = 0;
+while (gfx_getdropfile(n, #dropfile)) (
+  t = hover >= 0 ? (hover + n) : first_empty();
+  t >= SLOTS ? t = SLOTS - 1;
+  t < 0 ? t = 0;
+  set_path(t, #dropfile);
+  load_slot(t, #dropfile);
+  n += 1;
+);
+n > 0 ? gfx_getdropfile(-1);
+
+// ---- handle unload clicks ----
+lclick && over_ca ? clear_all();
+lclick && xbtn >= 0 ? clear_slot(xbtn);
+rclick && hover >= 0 ? clear_slot(hover);
+
+// ---- header ----
+gfx_set(0.90, 0.92, 0.96, 1);
+gfx_x = 10; gfx_y = 8;
+gfx_drawstr("Trigger - v0.3a sample loader");
+
+gfx_set(0.55, 0.60, 0.68, 1);
+gfx_x = 10; gfx_y = 30;
+gfx_drawstr("Drop a WAV onto a slot. Right-click or click x to unload.");
+
+loaded = 0;
+i = 0;
+loop(SLOTS, ( s_ok[i] ? (loaded += 1); i += 1; ));
+
+gfx_x = 10; gfx_y = 46;
+gfx_printf("Slots: %d/%d loaded    Triggers: %d", loaded, SLOTS, trigger_count);
+
+// ---- Clear All button ----
+gfx_set(0.18, 0.19, 0.23, 1);
+gfx_rect(ca_x, ca_y, ca_w, ca_h);
+gfx_set(over_ca ? 0.95 : 0.60, 0.60, 0.65, 1);
+gfx_x = ca_x + 10; gfx_y = ca_y + 4;
+gfx_drawstr("Clear All");
+
+// ---- slot grid ----
+i = 0;
+loop(SLOTS, (
+  col = i - (((i/cols) | 0) * cols);
+  row = (i/cols) | 0;
+  x = gx + col*(cw+gap);
+  y = gy + row*(ch+gap);
+
+  // background tint
+  s_ok[i] ? gfx_set(0.10, 0.24, 0.15, 1) :
+  s_err[i] ? gfx_set(0.30, 0.10, 0.10, 1) :
+             gfx_set(0.11, 0.12, 0.15, 1);
+  gfx_rect(x, y, cw, ch);
+
+  // border (bright blue when hovered)
+  hover == i ? gfx_set(0.35, 0.70, 1.0, 1) : gfx_set(0.30, 0.33, 0.38, 1);
+  gfx_rect(x, y, cw, 1);
+  gfx_rect(x, y+ch-1, cw, 1);
+  gfx_rect(x, y, 1, ch);
+  gfx_rect(x+cw-1, y, 1, ch);
+
+  // slot number
+  gfx_set(0.60, 0.65, 0.72, 1);
+  gfx_x = x + 6; gfx_y = y + 4;
+  gfx_printf("%d", i+1);
+
+  s_ok[i] ? (
+    // loaded indicator (green dot)
+    gfx_set(0.20, 0.90, 0.40, 1);
+    gfx_rect(x+cw-34, y+6, 8, 8);
+    // x (unload) button
+    gfx_set(0.35, 0.37, 0.42, 1);
+    gfx_rect(x+cw-18, y+3, 15, 15);
+    gfx_set(0.92, 0.92, 0.96, 1);
+    gfx_x = x+cw-14; gfx_y = y+4;
+    gfx_drawstr("x");
+    // file name
+    slot_disp(i);
+    gfx_set(1, 1, 1, 1);
+    gfx_x = x+6; gfx_y = y+24;
+    gfx_drawstr(#disp);
+    // details
+    gfx_set(0.60, 0.75, 0.70, 1);
+    gfx_x = x+6; gfx_y = y+42;
+    gfx_printf("%.2fs  %dch  %dHz", s_len[i]/s_rate[i], s_nch[i], s_rate[i]);
+  ) : (
+    s_err[i] ? (
+      gfx_set(0.90, 0.40, 0.40, 1);
+      gfx_x = x+6; gfx_y = y+26;
+      gfx_drawstr("load error");
+    ) : (
+      gfx_set(0.40, 0.44, 0.50, 1);
+      gfx_x = x+6; gfx_y = y+26;
+      gfx_drawstr("drop sample here");
+    );
+  );
+
+  i += 1;
+));
