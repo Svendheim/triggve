@@ -1,4 +1,4 @@
-desc:Drum Trigger (v0.3a sample loader)
+desc:Drum Trigger (v0.3b sample playback)
 author:Stein
 tags: drums trigger instrument
 in_pin:left input
@@ -8,13 +8,16 @@ out_pin:right output
 options:maxmem=20000000
 
 // ---------------------------------------------------------------------------
-// v0.3a SCOPE
-//   * Existing v0.2 transient detector (unchanged)
+// v0.3b SCOPE
+//   * Existing v0.2 transient detector
 //   * 8-slot sample pool: drag & drop WAV files onto slots
 //   * Per-slot loaded indicator + length / channels / sample-rate readout
 //   * Unload: right-click a slot, click its "x", or press "Clear All"
 //   * Slots persist in the project via @serialize
-// No sample playback yet (voice engine arrives in v0.3b).
+//   * 16-voice polyphonic playback from slot 1 (top-left)
+//   * Linear velocity scaling from the transient envelope
+//   * Output = optional input passthrough + samples + test click
+// Round-robin across all slots is planned for v0.4.
 // ---------------------------------------------------------------------------
 
 slider1:-18<-60,0,0.1>Threshold (dB)
@@ -23,6 +26,8 @@ slider3:80<5,1000,1>Envelope Release (ms)
 slider4:40<0,500,1>Retrigger Holdoff (ms)
 slider5:0.3<0,1,0.01>Test Click Level (0 = off)
 slider6:6<0,24,1>Hysteresis (dB)
+slider7:0.8<0,1,0.01>Sample Level
+slider8:1<0,1,1>Pass Input (1 = on)
 
 @init
 
@@ -45,12 +50,27 @@ function setup_geometry() (
   s_nch  = META_BASE + SLOTS*2;    // 1 or 2
   s_rate = META_BASE + SLOTS*3;    // sample rate the slot was resampled to
   s_err  = META_BASE + SLOTS*4;    // load failure flag
+
+  // ---- voice pool (v0.3b) ----
+  VOICES = 16;
+  PLAY_SLOT = 0;                   // v0.3b plays slot 1 (top-left) only
+  V_BASE = META_BASE + SLOTS*5;
+  v_active = V_BASE;
+  v_pos    = V_BASE + VOICES;      // playhead, in frames
+  v_gain   = V_BASE + VOICES*2;
+  v_slot   = V_BASE + VOICES*3;
+  v_age    = V_BASE + VOICES*4;    // higher = newer, for voice stealing
 );
 
 setup_geometry();
 
 // ---- GUI state -----------------------------------------------------------
 prev_cap = 0;
+
+// ---- voice engine state --------------------------------------------------
+voice_age = 0;
+vi = 0;
+loop(VOICES, ( v_active[vi] = 0; vi += 1; ));
 
 // ---- detector state ------------------------------------------------------
 env = 0;
@@ -69,6 +89,7 @@ release_coef = exp(-1 / (srate * slider3 / 1000));
 holdoff_samples = slider4 / 1000 * srate;
 click_coef = exp(-1 / (srate * 0.005)); // ~5 ms click decay
 led_coef = exp(-1 / (srate * 0.2));     // ~200 ms LED hold
+sample_level = slider7;
 
 // Store a loaded file's path into the matching named string slot.
 function set_path(idx, path) (
@@ -173,6 +194,32 @@ function load_slot(idx, path) local(fh, nch, sr, avail, frames, cap, base) (
   );
 );
 
+// Start a voice playing slot PLAY_SLOT at the current trigger velocity.
+// Grabs a free voice, or steals the oldest one when the pool is full.
+function start_voice() local(i, vfree, oldest) (
+  vfree = -1;
+  i = 0;
+  while (i < VOICES && vfree < 0) (
+    !v_active[i] ? ( vfree = i; );
+    i += 1;
+  );
+  vfree < 0 ? (
+    oldest = 0;
+    i = 1;
+    while (i < VOICES) (
+      v_age[i] < v_age[oldest] ? ( oldest = i; );
+      i += 1;
+    );
+    vfree = oldest;
+  );
+  v_active[vfree] = 1;
+  v_pos[vfree] = 0;
+  v_gain[vfree] = trig_vel * sample_level;
+  v_slot[vfree] = PLAY_SLOT;
+  voice_age += 1;
+  v_age[vfree] = voice_age;
+);
+
 @slider
 
 thr = 10 ^ (slider1 / 20);
@@ -180,6 +227,7 @@ thr_low = thr * 10 ^ (-slider6 / 20);
 attack_coef = exp(-1 / (srate * slider2 / 1000));
 release_coef = exp(-1 / (srate * slider3 / 1000));
 holdoff_samples = slider4 / 1000 * srate;
+sample_level = slider7;
 
 @sample
 
@@ -205,13 +253,47 @@ trigger = 0;
   holdoff_counter = holdoff_samples;
   trigger_count += 1;
   click = slider5;
+  trig_vel = min(env, 1);
+  s_ok[PLAY_SLOT] ? start_voice();
 );
 
 // --- decay the test click, hold the LED ---
 click = click * click_coef;
 led = max(led * led_coef, trigger);
 
-// --- output: pass audio through untouched, add optional test click ---
+// --- pass-through gating ---
+slider8 ? 0 : ( spl0 = 0; spl1 = 0; );
+
+// --- polyphonic voice playback (sum into the output) ---
+vi = 0;
+loop(VOICES, (
+  v_active[vi] ? (
+    s_ok[v_slot[vi]] ? (
+      sbase = AUDIO_BASE + v_slot[vi]*SLOT_STRIDE;
+      spos = v_pos[vi] | 0;
+      snch = s_nch[v_slot[vi]];
+      snch == 1 ? (
+        vsmp = sbase[spos];
+        spl0 += vsmp * v_gain[vi];
+        spl1 += vsmp * v_gain[vi];
+        v_pos[vi] += 1;
+      ) : (
+        vsmpL = sbase[spos*2];
+        vsmpR = sbase[spos*2 + 1];
+        spl0 += vsmpL * v_gain[vi];
+        spl1 += vsmpR * v_gain[vi];
+        v_pos[vi] += 1;
+      );
+      v_pos[vi] >= s_len[v_slot[vi]] ? ( v_active[vi] = 0; );
+    ) : (
+      // slot was unloaded mid-voice: stop immediately
+      v_active[vi] = 0;
+    );
+  );
+  vi += 1;
+));
+
+// --- add the optional test click ---
 spl0 = spl0 + click;
 spl1 = spl1 + click;
 
@@ -315,18 +397,22 @@ rclick && hover >= 0 ? clear_slot(hover);
 // ---- header ----
 gfx_set(0.90, 0.92, 0.96, 1);
 gfx_x = 10; gfx_y = 8;
-gfx_drawstr("Trigger - v0.3a sample loader");
+gfx_drawstr("Trigger - v0.3b sample playback");
 
 gfx_set(0.55, 0.60, 0.68, 1);
 gfx_x = 10; gfx_y = 30;
-gfx_drawstr("Drop a WAV onto a slot. Right-click or click x to unload.");
+gfx_drawstr("Drop a WAV onto slot 1 to play it. Right-click or click x to unload.");
 
 loaded = 0;
+voices_active = 0;
 i = 0;
 loop(SLOTS, ( s_ok[i] ? (loaded += 1); i += 1; ));
+i = 0;
+loop(VOICES, ( v_active[i] ? (voices_active += 1); i += 1; ));
 
 gfx_x = 10; gfx_y = 46;
-gfx_printf("Slots: %d/%d loaded    Triggers: %d", loaded, SLOTS, trigger_count);
+gfx_printf("Slots: %d/%d loaded    Triggers: %d    Voices: %d/%d",
+           loaded, SLOTS, trigger_count, voices_active, VOICES);
 
 // ---- Clear All button ----
 gfx_set(0.18, 0.19, 0.23, 1);
@@ -360,6 +446,13 @@ loop(SLOTS, (
   gfx_set(0.60, 0.65, 0.72, 1);
   gfx_x = x + 6; gfx_y = y + 4;
   gfx_printf("%d", i+1);
+
+  // mark the active playback slot
+  i == PLAY_SLOT ? (
+    gfx_set(0.95, 0.75, 0.20, 1);
+    gfx_x = x + 22; gfx_y = y + 4;
+    gfx_drawstr("PLAY");
+  );
 
   s_ok[i] ? (
     // loaded indicator (green dot)
