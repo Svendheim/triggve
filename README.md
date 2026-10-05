@@ -2,7 +2,7 @@
 
 A lightweight, low-latency REAPER JSFX drum replacement and sample triggering plugin designed for Linux and cross-platform REAPER environments.
 
-`Trigger` monitors incoming audio transients on a track, estimates hit velocity from the envelope, and plays a sample from an 8-slot pool. Slots can be filled by drag & drop and are cycled with **Single**, **Round-robin**, or **Random (no immediate repeat)** selection. By default the dry input is muted, so the plugin acts as a full drum replacement.
+`Trigger` monitors incoming audio transients on a track, estimates hit velocity from the input peak, and plays a sample from an 8-slot pool. Slots can be filled by drag & drop and are cycled with **Single**, **Round-robin**, or **Random (no immediate repeat)** selection. By default the dry input is muted (**Mix** = 1), so the plugin acts as a full drum replacement.
 
 ## Features
 
@@ -22,16 +22,62 @@ A lightweight, low-latency REAPER JSFX drum replacement and sample triggering pl
 
 ## Controls
 
-| # | Control | Default | Range | Notes |
-|---|---------|---------|-------|-------|
-| 1 | Threshold (dB) | −18 | −60 … 0 | Level the envelope must cross to fire. |
-| 2 | Envelope Attack (ms) | 1 | 0.1 … 50 | Envelope follower attack. |
-| 3 | Envelope Release (ms) | 5 | 1 … 45 | Envelope follower release; also sets how fast the detector re-arms. |
-| 4 | Retrigger Holdoff (ms) | 20 | 1 … 100 | Minimum time between triggers. |
-| 5 | Hysteresis (dB) | 6 | 0 … 24 | How far the envelope must fall below threshold before re-arming. |
-| 6 | Mix | 1.0 | 0 … 1 | Wet/dry blend: 0 = dry only (original drum), 1 = sample only (full replacement). |
-| 7 | Sample Selection | Random | Single / Round-robin / Random | How the next sample is chosen. |
-| 8 | Output Gain (dB) | 0 | −24 … +24 | Makeup gain to match the source loudness; kept safe by the soft-clip ceiling. |
+| # | Control | Default | Range | One-line summary |
+|---|---------|---------|-------|------------------|
+| 1 | Threshold (dB) | −18 | −60 … 0 | How loud a hit must be to trigger. |
+| 2 | Envelope Attack (ms) | 1 | 0.1 … 50 | How quickly the detector reacts to a rising hit. |
+| 3 | Envelope Release (ms) | 5 | 1 … 45 | How quickly the detector lets go after a hit (also sets re-arm speed). |
+| 4 | Retrigger Holdoff (ms) | 20 | 1 … 100 | Minimum time between two triggers. |
+| 5 | Hysteresis (dB) | 6 | 0 … 24 | How far the signal must drop before the detector can fire again. |
+| 6 | Mix | 1.0 | 0 … 1 | Blend of dry input vs. triggered samples. |
+| 7 | Sample Selection | Random | Single / Round-robin / Random | Which loaded slot plays next. |
+| 8 | Output Gain (dB) | 0 | −24 … +24 | Makeup gain for the triggered samples. |
+
+### How the detector works
+The plugin follows the input with an **envelope**: it rises quickly (Attack) when a hit arrives and falls slowly (Release) when it ends. A trigger fires when the envelope crosses the **Threshold**. After firing, the detector is "disarmed" and only re-arms once the envelope falls below *Threshold minus Hysteresis*; the **Holdoff** also enforces a minimum gap between triggers. Release and Hysteresis together control how fast the next hit can be detected.
+
+### What each slider does
+
+**1. Threshold (dB)** — detection sensitivity.
+The level the envelope must reach to fire. **Lower** = more sensitive (quiet/ghost notes trigger), **higher** = only strong hits trigger. Range −60 … 0 dB. Tune it so real hits fire but bleed/tails don't.
+
+**2. Envelope Attack (ms)** — how fast the detector *reacts* to a rise.
+**Lower** = snappier tracking of sharp transients; **higher** = smoother, ignoring very short clicks/noise. This shapes *detection only* — it does not change the played sample. Default 1 ms.
+
+**3. Envelope Release (ms)** — how fast the detector *lets go* after a hit.
+This is the main control over **retrigger speed**: a shorter release drops below the re-arm point faster, allowing rapid successive hits. **Too short** and a long/ringy hit may re-fire. Default 5 ms.
+
+**4. Retrigger Holdoff (ms)** — a hard minimum gap between triggers.
+After a trigger, the plugin ignores further triggers for this long. It prevents double-triggers/machine-gunning independently of Release. Lower it for very fast rolls; raise it if a single hit fires twice. Default 20 ms.
+
+**5. Hysteresis (dB)** — the re-arm margin.
+After a hit, the envelope must fall *this far below* the Threshold before the detector re-arms. **Larger** = more robust against re-firing on decay/noise; **smaller** = more sensitive to closely spaced hits. Default 6 dB.
+
+**6. Mix** — dry/wet blend.
+`0` = original drum only, `1` = triggered sample only (full replacement), in between mixes both linearly. Default `1`. Use it to keep some of the source or to audition the samples.
+
+**7. Sample Selection** — which loaded slot plays next.
+- **Single (slot 1)** — always slot 1.
+- **Round-robin** — cycles through loaded slots in order (skips empty slots, wraps at the end).
+- **Random** — picks a loaded slot at random, **never the same as the previous hit** (avoids machine-gun repetition).
+If only one slot is loaded, every mode plays that slot. Default **Random**.
+
+**8. Output Gain (dB)** — makeup gain for the samples.
+Applied to the triggered samples (not the dry input) before the safety ceiling. Use it to match the source loudness if your samples are quieter. Range ±24 dB. The soft-clip prevents the output from exceeding 0 dBFS even when boosted. Default 0 dB.
+
+### Signal flow
+```
+input ──► detector (Attack/Release/Threshold/Hysteresis/Holdoff) ──► trigger
+                                                                      │
+                                                                      ▼
+                              slot pool (Selection) ──► voice (peak velocity) ──► × Output Gain ──► soft-clip
+                                                                                                      │
+input (dry) ────────────────────────────────────────────────► Mix ◄──────────────────────────────────┘
+                                                                 │
+                                                                 ▼
+                                                              output
+```
+
 
 ## Installation
 
