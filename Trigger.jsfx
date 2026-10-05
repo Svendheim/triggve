@@ -22,8 +22,8 @@ options:maxmem=20000000
 
 slider1:-18<-60,0,0.1>Threshold (dB)
 slider2:1<0.1,50,0.1>Envelope Attack (ms)
-slider3:80<5,1000,1>Envelope Release (ms)
-slider4:40<0,500,1>Retrigger Holdoff (ms)
+slider3:20<5,1000,1>Envelope Release (ms)
+slider4:20<0,500,1>Retrigger Holdoff (ms)
 slider5:6<0,24,1>Hysteresis (dB)
 slider6:1<0,1,0.01>Sample Level
 slider7:0<0,1,1>Pass Input (1 = on)
@@ -239,10 +239,11 @@ env = coef * env + (1 - coef) * in;
 // --- holdoff countdown ---
 holdoff_counter > 0 ? (holdoff_counter -= 1);
 
-// --- re-arm once the raw signal falls below the lower threshold ---
-// (using the instantaneous input, not the slow smoothed envelope, so fast
-//  retriggers are not gated by the envelope release time)
-in < thr_low ? (armed = 1);
+// --- re-arm once the smoothed envelope falls below the lower threshold ---
+// NOTE: onset/derivative detection is planned for later, which would decouple
+// retriggering from the envelope release time. For now, hysteresis + a short
+// release keeps single hits from double-firing while allowing fast retriggers.
+env < thr_low ? (armed = 1);
 
 // --- fire a trigger? ---
 trigger = 0;
