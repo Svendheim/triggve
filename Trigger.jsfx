@@ -239,8 +239,10 @@ env = coef * env + (1 - coef) * in;
 // --- holdoff countdown ---
 holdoff_counter > 0 ? (holdoff_counter -= 1);
 
-// --- re-arm only once the signal has fallen below the lower threshold ---
-env < thr_low ? (armed = 1);
+// --- re-arm once the raw signal falls below the lower threshold ---
+// (using the instantaneous input, not the slow smoothed envelope, so fast
+//  retriggers are not gated by the envelope release time)
+in < thr_low ? (armed = 1);
 
 // --- fire a trigger? ---
 trigger = 0;
