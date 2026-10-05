@@ -1,4 +1,4 @@
-desc:Drum Trigger (v0.31 sample replacement)
+desc:Drum Trigger (v0.4 sample selection)
 author:Stein
 tags: drums trigger instrument
 in_pin:left input
@@ -8,16 +8,16 @@ out_pin:right output
 options:maxmem=20000000
 
 // ---------------------------------------------------------------------------
-// v0.31 SCOPE
+// v0.4 SCOPE
 //   * Existing v0.2 transient detector
 //   * 8-slot sample pool: drag & drop WAV files onto slots
 //   * Per-slot loaded indicator + length / channels / sample-rate readout
 //   * Unload: right-click a slot, click its "x", or press "Clear All"
 //   * Slots persist in the project via @serialize
-//   * 16-voice polyphonic playback from slot 1 (top-left)
+//   * 16-voice polyphonic playback
 //   * Linear velocity scaling from the transient envelope
+//   * Selection modes: Single (slot 1) / Round-robin / Random (no repeat)
 //   * Defaults to FULL REPLACEMENT: input muted, only the sample is heard
-// Round-robin across all slots is planned for v0.4.
 // ---------------------------------------------------------------------------
 
 slider1:-18<-60,0,0.1>Threshold (dB)
@@ -27,6 +27,7 @@ slider4:20<1,100,1>Retrigger Holdoff (ms)
 slider5:6<0,24,1>Hysteresis (dB)
 slider6:1<0,1,0.01>Sample Level
 slider7:0<0,1,1>Pass Input (1 = on)
+slider8:2<0,2,1{Single (slot 1),Round-robin,Random}>Sample Selection
 
 @init
 
@@ -52,7 +53,7 @@ function setup_geometry() (
 
   // ---- voice pool (v0.3b) ----
   VOICES = 16;
-  PLAY_SLOT = 0;                   // v0.3b plays slot 1 (top-left) only
+  PLAY_SLOT = 0;                   // slot 1 (top-left) = "Single" selection mode
   V_BASE = META_BASE + SLOTS*5;
   v_active = V_BASE;
   v_pos    = V_BASE + VOICES;      // playhead, in frames
@@ -78,6 +79,10 @@ holdoff_counter = 0;
 trigger = 0;
 trigger_count = 0;
 led = 0;
+
+// ---- sample-selection state (v0.4) --------------------------------------
+last_slot = -1;      // previous slot chosen by a trigger (-1 = none yet)
+chosen_slot = -1;    // result of select_slot()
 
 // Derived values (recomputed whenever sliders change)
 thr = 10 ^ (slider1 / 20);
@@ -128,6 +133,52 @@ function first_empty() local(i) (
   i = 0;
   while (i < SLOTS && s_ok[i]) ( i += 1; );
   i;
+);
+
+// Choose the next slot according to slider8 (selection mode).
+// Writes the result to the global chosen_slot (-1 = nothing to play).
+//   slider8 0 = Single (slot 1), 1 = Round-robin, 2 = Random (no repeat)
+function select_slot() local(i, j, n, k, r, c) (
+  chosen_slot = -1;
+
+  // count loaded slots
+  n = 0; i = 0;
+  loop(SLOTS, ( s_ok[i] ? (n += 1); i += 1; ));
+
+  n == 0 ? (
+    chosen_slot = -1;
+  ) : n == 1 ? (
+    // exactly one loaded slot: always use it
+    i = 0;
+    while (i < SLOTS && !s_ok[i]) ( i += 1; );
+    chosen_slot = i;
+  ) : slider8 == 0 ? (
+    // Single: slot 1 (top-left) if loaded
+    chosen_slot = s_ok[0] ? 0 : -1;
+  ) : slider8 == 1 ? (
+    // Round-robin: first loaded slot strictly after last_slot, wrapping
+    j = 1;
+    loop(SLOTS, (
+      i = last_slot + j;
+      i >= SLOTS ? ( i -= SLOTS; );
+      (chosen_slot < 0 && s_ok[i]) ? ( chosen_slot = i; );
+      j += 1;
+    ));
+  ) : (
+    // Random: uniform pick among loaded slots, excluding last_slot
+    k = 0; i = 0;
+    loop(SLOTS, ( (s_ok[i] && i != last_slot) ? (k += 1); i += 1; ));
+    r = (rand(k)) | 0;
+    r >= k ? ( r = k - 1; );
+    c = 0; i = 0;
+    loop(SLOTS, (
+      (s_ok[i] && i != last_slot) ? (
+        c += 1;
+        (chosen_slot < 0 && c == r + 1) ? ( chosen_slot = i; );
+      );
+      i += 1;
+    ));
+  );
 );
 
 // Put a short display name (basename, max 22 chars) of slot idx into #disp.
@@ -191,9 +242,9 @@ function load_slot(idx, path) local(fh, nch, sr, avail, frames, cap, base) (
   );
 );
 
-// Start a voice playing slot PLAY_SLOT at the current trigger velocity.
+// Start a voice playing the given slot at the current trigger velocity.
 // Grabs a free voice, or steals the oldest one when the pool is full.
-function start_voice() local(i, vfree, oldest) (
+function start_voice(slot) local(i, vfree, oldest) (
   vfree = -1;
   i = 0;
   while (i < VOICES && vfree < 0) (
@@ -212,7 +263,7 @@ function start_voice() local(i, vfree, oldest) (
   v_active[vfree] = 1;
   v_pos[vfree] = 0;
   v_gain[vfree] = trig_vel * sample_level;
-  v_slot[vfree] = PLAY_SLOT;
+  v_slot[vfree] = slot;
   voice_age += 1;
   v_age[vfree] = voice_age;
 );
@@ -253,7 +304,12 @@ trigger = 0;
   holdoff_counter = holdoff_samples;
   trigger_count += 1;
   trig_vel = min(env, 1);
-  s_ok[PLAY_SLOT] ? start_voice();
+  // choose the next sample and start a voice for it
+  select_slot();
+  chosen_slot >= 0 ? (
+    start_voice(chosen_slot);
+    last_slot = chosen_slot;
+  );
 );
 
 // --- hold the LED ---
@@ -320,7 +376,7 @@ reading ? (
   strlen(#path7) > 0 ? load_slot(7, #path7);
 );
 
-@gfx 640 420
+@gfx 720 460
 
 // ---- mouse button edge detection ----
 lmb = mouse_cap & 1;
@@ -331,16 +387,16 @@ prev_cap = mouse_cap;
 
 // ---- background ----
 gfx_clear = 1;
-gfx_setfont(1, "Arial", 12);
+gfx_setfont(1, "Arial", 14);
 gfx_set(0.07, 0.08, 0.10, 1);
 gfx_rect(0, 0, gfx_w, gfx_h);
 
 // ---- slot grid layout ----
-pad = 8;
-gap = 6;
+pad = 10;
+gap = 8;
 cols = 4;
 rows = 2;
-top_h = 64;
+top_h = 108;
 gx = pad;
 gy = top_h + pad;
 gw = gfx_w - pad*2;
@@ -359,16 +415,16 @@ loop(SLOTS, (
   y = gy + row*(ch+gap);
   inside = (mouse_x >= x && mouse_x < x+cw && mouse_y >= y && mouse_y < y+ch);
   inside ? (hover = i);
-  (inside && s_ok[i] && mouse_x >= x+cw-18 && mouse_x < x+cw-4 && mouse_y >= y+4 && mouse_y < y+18)
+  (inside && s_ok[i] && mouse_x >= x+cw-24 && mouse_x < x+cw-4 && mouse_y >= y+4 && mouse_y < y+24)
     ? (xbtn = i);
   i += 1;
 ));
 
 // ---- Clear All button hit testing ----
-ca_x = gfx_w - 92;
-ca_y = 8;
-ca_w = 84;
-ca_h = 20;
+ca_x = gfx_w - 112;
+ca_y = 10;
+ca_w = 102;
+ca_h = 26;
 over_ca = (mouse_x >= ca_x && mouse_x < ca_x+ca_w && mouse_y >= ca_y && mouse_y < ca_y+ca_h);
 
 // ---- handle dropped files ----
@@ -389,13 +445,25 @@ lclick && xbtn >= 0 ? clear_slot(xbtn);
 rclick && hover >= 0 ? clear_slot(hover);
 
 // ---- header ----
+gfx_setfont(1, "Arial", 18);
 gfx_set(0.90, 0.92, 0.96, 1);
-gfx_x = 10; gfx_y = 8;
-gfx_drawstr("Trigger - v0.31 sample replacement");
+gfx_x = 12; gfx_y = 12;
+gfx_drawstr("Trigger - v0.4 sample selection");
 
+gfx_setfont(1, "Arial", 14);
 gfx_set(0.55, 0.60, 0.68, 1);
-gfx_x = 10; gfx_y = 30;
-gfx_drawstr("Drop a WAV onto slot 1 to play it. Right-click or click x to unload.");
+gfx_x = 12; gfx_y = 42;
+gfx_drawstr("Drop a WAV onto a slot. Right-click or click x to unload.");
+
+// selection mode + last slot
+slider8 == 0 ? strcpy(#selname, "Single (slot 1)") :
+slider8 == 1 ? strcpy(#selname, "Round-robin") :
+                strcpy(#selname, "Random (no repeat)");
+last_slot < 0 ? strcpy(#lastname, "-") : sprintf(#lastname, "%d", last_slot+1);
+sprintf(#buf, "Mode: %s    Last slot: %s", #selname, #lastname);
+gfx_set(0.55, 0.75, 1.0, 1);
+gfx_x = 12; gfx_y = 66;
+gfx_drawstr(#buf);
 
 loaded = 0;
 voices_active = 0;
@@ -404,7 +472,8 @@ loop(SLOTS, ( s_ok[i] ? (loaded += 1); i += 1; ));
 i = 0;
 loop(VOICES, ( v_active[i] ? (voices_active += 1); i += 1; ));
 
-gfx_x = 10; gfx_y = 46;
+gfx_set(0.55, 0.60, 0.68, 1);
+gfx_x = 12; gfx_y = 88;
 gfx_printf("Slots: %d/%d loaded    Triggers: %d    Voices: %d/%d",
            loaded, SLOTS, trigger_count, voices_active, VOICES);
 
@@ -412,7 +481,7 @@ gfx_printf("Slots: %d/%d loaded    Triggers: %d    Voices: %d/%d",
 gfx_set(0.18, 0.19, 0.23, 1);
 gfx_rect(ca_x, ca_y, ca_w, ca_h);
 gfx_set(over_ca ? 0.95 : 0.60, 0.60, 0.65, 1);
-gfx_x = ca_x + 10; gfx_y = ca_y + 4;
+gfx_x = ca_x + 14; gfx_y = ca_y + 5;
 gfx_drawstr("Clear All");
 
 // ---- slot grid ----
@@ -436,45 +505,52 @@ loop(SLOTS, (
   gfx_rect(x, y, 1, ch);
   gfx_rect(x+cw-1, y, 1, ch);
 
-  // slot number
+  // slot number + marker (larger font for readability)
+  gfx_setfont(1, "Arial", 16);
   gfx_set(0.60, 0.65, 0.72, 1);
-  gfx_x = x + 6; gfx_y = y + 4;
+  gfx_x = x + 8; gfx_y = y + 6;
   gfx_printf("%d", i+1);
 
-  // mark the active playback slot
-  i == PLAY_SLOT ? (
+  // mark the active slot: PLAY in Single mode, LAST for the most recent pick
+  #marker = "";
+  slider8 == 0 ? (
+    (i == 0 && s_ok[0]) ? ( #marker = "PLAY"; );
+  ) : (
+    (i == last_slot) ? ( #marker = "LAST"; );
+  );
+  strlen(#marker) ? (
     gfx_set(0.95, 0.75, 0.20, 1);
-    gfx_x = x + 22; gfx_y = y + 4;
-    gfx_drawstr("PLAY");
+    gfx_x = x + 32; gfx_y = y + 6;
+    gfx_drawstr(#marker);
   );
 
   s_ok[i] ? (
     // loaded indicator (green dot)
     gfx_set(0.20, 0.90, 0.40, 1);
-    gfx_rect(x+cw-34, y+6, 8, 8);
+    gfx_rect(x+cw-42, y+8, 10, 10);
     // x (unload) button
     gfx_set(0.35, 0.37, 0.42, 1);
-    gfx_rect(x+cw-18, y+3, 15, 15);
+    gfx_rect(x+cw-24, y+4, 20, 20);
     gfx_set(0.92, 0.92, 0.96, 1);
-    gfx_x = x+cw-14; gfx_y = y+4;
+    gfx_x = x+cw-18; gfx_y = y+6;
     gfx_drawstr("x");
     // file name
     slot_disp(i);
     gfx_set(1, 1, 1, 1);
-    gfx_x = x+6; gfx_y = y+24;
+    gfx_x = x+8; gfx_y = y+34;
     gfx_drawstr(#disp);
     // details
     gfx_set(0.60, 0.75, 0.70, 1);
-    gfx_x = x+6; gfx_y = y+42;
+    gfx_x = x+8; gfx_y = y+60;
     gfx_printf("%.2fs  %dch  %dHz", s_len[i]/s_rate[i], s_nch[i], s_rate[i]);
   ) : (
     s_err[i] ? (
       gfx_set(0.90, 0.40, 0.40, 1);
-      gfx_x = x+6; gfx_y = y+26;
+      gfx_x = x+8; gfx_y = y+34;
       gfx_drawstr("load error");
     ) : (
       gfx_set(0.40, 0.44, 0.50, 1);
-      gfx_x = x+6; gfx_y = y+26;
+      gfx_x = x+8; gfx_y = y+34;
       gfx_drawstr("drop sample here");
     );
   );
