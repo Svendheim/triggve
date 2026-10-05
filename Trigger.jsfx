@@ -22,8 +22,8 @@ options:maxmem=20000000
 
 slider1:-18<-60,0,0.1>Threshold (dB)
 slider2:1<0.1,50,0.1>Envelope Attack (ms)
-slider3:20<5,1000,1>Envelope Release (ms)
-slider4:20<0,500,1>Retrigger Holdoff (ms)
+slider3:5<1,45,1>Envelope Release (ms)
+slider4:20<1,100,1>Retrigger Holdoff (ms)
 slider5:6<0,24,1>Hysteresis (dB)
 slider6:1<0,1,0.01>Sample Level
 slider7:0<0,1,1>Pass Input (1 = on)
