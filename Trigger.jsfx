@@ -93,6 +93,13 @@ holdoff_samples = slider4 / 1000 * srate;
 led_coef = exp(-1 / (srate * 0.2));     // ~200 ms LED hold
 sample_level = slider6;
 
+// Transport fade: ramp the voice output up/down over ~5 ms on stop/play so
+// the host's hard stop becomes a smooth fade instead of a click.
+play_gain = 1;
+fade_coef = exp(-1 / (srate * 0.005));
+prev_play_state = 0;
+stop_fading = 0;
+
 // Store a loaded file's path into the matching named string slot.
 function set_path(idx, path) (
   idx == 0 ? strcpy(#path0, path) :
@@ -242,6 +249,13 @@ function load_slot(idx, path) local(fh, nch, sr, avail, frames, cap, base) (
   );
 );
 
+// Soft-clip a sample value into [-1, 1] so the summed voices can never push
+// the output above full scale. Identity below 0.9, smoothly limited above.
+function softclip(x) local(a) (
+  a = abs(x);
+  a <= 0.9 ? x : sign(x) * (0.9 + 0.1 * (1 - exp(-(a - 0.9) / 0.1)));
+);
+
 // Start a voice playing the given slot at the current trigger velocity.
 // Grabs a free voice, or steals the oldest one when the pool is full.
 function start_voice(slot) local(i, vfree, oldest) (
@@ -276,6 +290,7 @@ attack_coef = exp(-1 / (srate * slider2 / 1000));
 release_coef = exp(-1 / (srate * slider3 / 1000));
 holdoff_samples = slider4 / 1000 * srate;
 sample_level = slider6;
+fade_coef = exp(-1 / (srate * 0.005));
 
 @sample
 
@@ -318,7 +333,9 @@ led = max(led * led_coef, trigger);
 // --- pass-through gating (default 0 = full replacement) ---
 slider7 ? 0 : ( spl0 = 0; spl1 = 0; );
 
-// --- polyphonic voice playback (sum into the output) ---
+// --- polyphonic voice playback (accumulate voice output separately) ---
+vosl = 0;
+vosr = 0;
 vi = 0;
 loop(VOICES, (
   v_active[vi] ? (
@@ -328,14 +345,14 @@ loop(VOICES, (
       snch = s_nch[v_slot[vi]];
       snch == 1 ? (
         vsmp = sbase[spos];
-        spl0 += vsmp * v_gain[vi];
-        spl1 += vsmp * v_gain[vi];
+        vosl += vsmp * v_gain[vi];
+        vosr += vsmp * v_gain[vi];
         v_pos[vi] += 1;
       ) : (
         vsmpL = sbase[spos*2];
         vsmpR = sbase[spos*2 + 1];
-        spl0 += vsmpL * v_gain[vi];
-        spl1 += vsmpR * v_gain[vi];
+        vosl += vsmpL * v_gain[vi];
+        vosr += vsmpR * v_gain[vi];
         v_pos[vi] += 1;
       );
       v_pos[vi] >= s_len[v_slot[vi]] ? ( v_active[vi] = 0; );
@@ -346,6 +363,27 @@ loop(VOICES, (
   );
   vi += 1;
 ));
+
+// --- transport-stop fade: on the 1 -> 0 transition, ramp voices down ---
+// (0 = stopped, 1 = playing, 2 = paused, 5/6 = recording states)
+stop_now = (play_state == 0) && (prev_play_state != 0);
+prev_play_state = play_state;
+stop_now ? ( stop_fading = 1; );
+(play_state != 0) ? ( stop_fading = 0; );
+
+play_target = stop_fading ? 0 : 1;
+play_gain = fade_coef * play_gain + (1 - fade_coef) * play_target;
+
+// once fully faded, drop the voices and end the fade so later live hits sound
+(stop_fading && play_gain < 0.001) ? (
+  vi = 0;
+  loop(VOICES, ( v_active[vi] = 0; vi += 1; ));
+  stop_fading = 0;
+);
+
+// --- safety ceiling + fade, then add to the (possibly dry) output ---
+spl0 += softclip(vosl * play_gain);
+spl1 += softclip(vosr * play_gain);
 
 @serialize
 
