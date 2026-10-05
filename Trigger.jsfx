@@ -28,6 +28,7 @@ slider5:6<0,24,1>Hysteresis (dB)
 slider6:1<0,1,0.01>Sample Level
 slider7:0<0,1,1>Pass Input (1 = on)
 slider8:2<0,2,1{Single (slot 1),Round-robin,Random}>Sample Selection
+slider9:0<-24,24,0.1>Output Gain (dB)
 
 @init
 
@@ -60,6 +61,8 @@ function setup_geometry() (
   v_gain   = V_BASE + VOICES*2;
   v_slot   = V_BASE + VOICES*3;
   v_age    = V_BASE + VOICES*4;    // higher = newer, for voice stealing
+  v_peak   = V_BASE + VOICES*5;    // per-voice running peak while tracking
+  v_track  = V_BASE + VOICES*6;    // samples left to track a voice's peak
 );
 
 setup_geometry();
@@ -70,7 +73,7 @@ prev_cap = 0;
 // ---- voice engine state --------------------------------------------------
 voice_age = 0;
 vi = 0;
-loop(VOICES, ( v_active[vi] = 0; vi += 1; ));
+loop(VOICES, ( v_active[vi] = 0; v_track[vi] = 0; vi += 1; ));
 
 // ---- detector state ------------------------------------------------------
 env = 0;
@@ -79,6 +82,7 @@ holdoff_counter = 0;
 trigger = 0;
 trigger_count = 0;
 led = 0;
+pk = 0;                  // peak follower of the current hit (for velocity)
 
 // ---- sample-selection state (v0.4) --------------------------------------
 last_slot = -1;      // previous slot chosen by a trigger (-1 = none yet)
@@ -92,6 +96,9 @@ release_coef = exp(-1 / (srate * slider3 / 1000));
 holdoff_samples = slider4 / 1000 * srate;
 led_coef = exp(-1 / (srate * 0.2));     // ~200 ms LED hold
 sample_level = slider6;
+pk_coef = exp(-1 / (srate * 0.15));       // ~150 ms peak-follower decay
+peak_window = (srate * 0.025) | 0;        // ~25 ms per-voice peak tracking
+out_gain = 10 ^ (slider9 / 20);
 
 // Transport fade: ramp the voice output up/down over ~5 ms on stop/play so
 // the host's hard stop becomes a smooth fade instead of a click.
@@ -278,6 +285,8 @@ function start_voice(slot) local(i, vfree, oldest) (
   v_pos[vfree] = 0;
   v_gain[vfree] = trig_vel * sample_level;
   v_slot[vfree] = slot;
+  v_peak[vfree] = pk;              // seed with the peak found so far
+  v_track[vfree] = peak_window;    // keep refining for ~25 ms
   voice_age += 1;
   v_age[vfree] = voice_age;
 );
@@ -290,6 +299,9 @@ attack_coef = exp(-1 / (srate * slider2 / 1000));
 release_coef = exp(-1 / (srate * slider3 / 1000));
 holdoff_samples = slider4 / 1000 * srate;
 sample_level = slider6;
+pk_coef = exp(-1 / (srate * 0.15));       // ~150 ms peak-follower decay
+peak_window = (srate * 0.025) | 0;        // ~25 ms per-voice peak tracking
+out_gain = 10 ^ (slider9 / 20);
 fade_coef = exp(-1 / (srate * 0.005));
 
 @sample
@@ -305,11 +317,15 @@ env = coef * env + (1 - coef) * in;
 // --- holdoff countdown ---
 holdoff_counter > 0 ? (holdoff_counter -= 1);
 
+// --- peak follower for velocity: the largest input excursion of this hit ---
+pk = max(in, pk * pk_coef);
+
 // --- re-arm once the smoothed envelope falls below the lower threshold ---
 // NOTE: onset/derivative detection is planned for later, which would decouple
 // retriggering from the envelope release time. For now, hysteresis + a short
 // release keeps single hits from double-firing while allowing fast retriggers.
-env < thr_low ? (armed = 1);
+// Re-arming also resets the velocity peak so each hit is measured on its own.
+env < thr_low ? (armed = 1; pk = 0; );
 
 // --- fire a trigger? ---
 trigger = 0;
@@ -318,7 +334,8 @@ trigger = 0;
   armed = 0;
   holdoff_counter = holdoff_samples;
   trigger_count += 1;
-  trig_vel = min(env, 1);
+  // velocity = the hit's peak seen so far, NOT the threshold-crossing level
+  trig_vel = min(pk, 1);
   // choose the next sample and start a voice for it
   select_slot();
   chosen_slot >= 0 ? (
@@ -339,6 +356,12 @@ vosr = 0;
 vi = 0;
 loop(VOICES, (
   v_active[vi] ? (
+    // keep refining this voice's velocity from the input peak for a short time
+    v_track[vi] > 0 ? (
+      v_peak[vi] = max(v_peak[vi], in);
+      v_gain[vi] = min(v_peak[vi], 1) * sample_level;
+      v_track[vi] -= 1;
+    );
     s_ok[v_slot[vi]] ? (
       sbase = AUDIO_BASE + v_slot[vi]*SLOT_STRIDE;
       spos = v_pos[vi] | 0;
@@ -381,9 +404,9 @@ play_gain = fade_coef * play_gain + (1 - fade_coef) * play_target;
   stop_fading = 0;
 );
 
-// --- safety ceiling + fade, then add to the (possibly dry) output ---
-spl0 += softclip(vosl * play_gain);
-spl1 += softclip(vosr * play_gain);
+// --- safety ceiling + fade + output gain, then add to the (possibly dry) output ---
+spl0 += softclip(vosl * play_gain * out_gain);
+spl1 += softclip(vosr * play_gain * out_gain);
 
 @serialize
 
