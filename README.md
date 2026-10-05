@@ -17,7 +17,7 @@ A lightweight, low-latency REAPER JSFX drum replacement and sample triggering pl
 - **Polyphonic Playback**: 16 independent voices so sample tails ring out naturally without hard clipping.
 - **Dynamic Velocity Scaling**: Plays each sample at the hit's **peak level** (measured over a short window, not at the threshold crossing) times the Sample Level, so triggered samples match the source loudness.
 - **Makeup Output Gain**: A ±24 dB output gain to match quiet sources, protected by the soft-clip ceiling.
-- **Input Pass-through Toggle**: Mix the dry signal back in, or leave it muted for full replacement.
+- **Wet/Dry Mix**: A linear blend between the dry input and triggered samples (0 = original only, 1 = samples only), so you can dial in exactly how much of the source to keep.
 - **Output Safety & Anti-Click**: A soft-clip ceiling guarantees the output never exceeds 0 dBFS, and a short transport-stop fade prevents pops when stopping mid-sample.
 
 ## Controls
@@ -30,7 +30,7 @@ A lightweight, low-latency REAPER JSFX drum replacement and sample triggering pl
 | 4 | Retrigger Holdoff (ms) | 20 | 1 … 100 | Minimum time between triggers. |
 | 5 | Hysteresis (dB) | 6 | 0 … 24 | How far the envelope must fall below threshold before re-arming. |
 | 6 | Sample Level | 1.0 | 0 … 1 | Output gain for triggered samples. |
-| 7 | Pass Input (1 = on) | 0 | 0 … 1 | 0 = full replacement (input muted); 1 = mix dry input with samples. |
+| 7 | Mix | 1.0 | 0 … 1 | Wet/dry blend: 0 = dry only (original drum), 1 = sample only (full replacement). |
 | 8 | Sample Selection | Random | Single / Round-robin / Random | How the next sample is chosen. |
 | 9 | Output Gain (dB) | 0 | −24 … +24 | Makeup gain to match the source loudness; kept safe by the soft-clip ceiling. |
 

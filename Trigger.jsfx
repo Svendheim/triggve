@@ -26,7 +26,7 @@ slider3:5<1,45,1>Envelope Release (ms)
 slider4:20<1,100,1>Retrigger Holdoff (ms)
 slider5:6<0,24,1>Hysteresis (dB)
 slider6:1<0,1,0.01>Sample Level
-slider7:0<0,1,1>Pass Input (1 = on)
+slider7:1<0,1,0.01>Mix
 slider8:2<0,2,1{Single (slot 1),Round-robin,Random}>Sample Selection
 slider9:0<-24,24,0.1>Output Gain (dB)
 
@@ -306,6 +306,10 @@ fade_coef = exp(-1 / (srate * 0.005));
 
 @sample
 
+// --- keep the dry input for the wet/dry mix ---
+dry_l = spl0;
+dry_r = spl1;
+
 // --- input peak (max of both channels) ---
 in = abs(spl0);
 in = max(in, abs(spl1));
@@ -346,9 +350,6 @@ trigger = 0;
 
 // --- hold the LED ---
 led = max(led * led_coef, trigger);
-
-// --- pass-through gating (default 0 = full replacement) ---
-slider7 ? 0 : ( spl0 = 0; spl1 = 0; );
 
 // --- polyphonic voice playback (accumulate voice output separately) ---
 vosl = 0;
@@ -404,9 +405,10 @@ play_gain = fade_coef * play_gain + (1 - fade_coef) * play_target;
   stop_fading = 0;
 );
 
-// --- safety ceiling + fade + output gain, then add to the (possibly dry) output ---
-spl0 += softclip(vosl * play_gain * out_gain);
-spl1 += softclip(vosr * play_gain * out_gain);
+// --- linear wet/dry mix (coeffs sum to 1, so the blend stays within full scale) ---
+wet = slider7;
+spl0 = (1 - wet) * dry_l + wet * softclip(vosl * play_gain * out_gain);
+spl1 = (1 - wet) * dry_r + wet * softclip(vosr * play_gain * out_gain);
 
 @serialize
 
