@@ -2,6 +2,10 @@
 
 **Hit Happens.**
 
+<p align="center">
+  <img src="triggve.jpg" alt="Triggve — Hit Happens" width="420">
+</p>
+
 A lightweight, low-latency REAPER JSFX drum replacement and sample triggering plugin for Linux and cross-platform REAPER environments. Current version: **beta1**.
 
 `Triggve` monitors incoming audio transients on a track, estimates hit velocity from the input peak, and plays a sample from an 8-slot pool. Slots can be filled by drag & drop and are cycled with **Single**, **Round-robin**, or **Random (no immediate repeat)** selection. By default the dry input is muted (**Mix** = 1), so the plugin acts as a full drum replacement.
