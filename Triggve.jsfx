@@ -448,7 +448,7 @@ prev_cap = mouse_cap;
 // ---- background ----
 gfx_clear = 1;
 gfx_setfont(1, "Arial", 14);
-gfx_set(0.07, 0.08, 0.10, 1);
+gfx_set(236/255, 236/255, 236/255, 1);
 gfx_rect(0, 0, gfx_w, gfx_h);
 
 // ---- slot grid layout ----
@@ -506,12 +506,12 @@ rclick && hover >= 0 ? clear_slot(hover);
 
 // ---- header ----
 gfx_setfont(1, "Arial", 18);
-gfx_set(0.90, 0.92, 0.96, 1);
+gfx_set(0.12, 0.12, 0.14, 1);
 gfx_x = 12; gfx_y = 12;
 gfx_drawstr("Triggve beta1 - Hit Happens");
 
 gfx_setfont(1, "Arial", 14);
-gfx_set(0.55, 0.60, 0.68, 1);
+gfx_set(0.35, 0.35, 0.38, 1);
 gfx_x = 12; gfx_y = 42;
 gfx_drawstr("Drop a WAV onto a slot. Right-click or click x to unload.");
 
@@ -521,7 +521,7 @@ slider7 == 1 ? strcpy(#selname, "Round-robin") :
                 strcpy(#selname, "Random (no repeat)");
 last_slot < 0 ? strcpy(#lastname, "-") : sprintf(#lastname, "%d", last_slot+1);
 sprintf(#buf, "Mode: %s    Last slot: %s", #selname, #lastname);
-gfx_set(0.55, 0.75, 1.0, 1);
+gfx_set(0.05, 0.30, 0.60, 1);
 gfx_x = 12; gfx_y = 66;
 gfx_drawstr(#buf);
 
@@ -532,15 +532,15 @@ loop(SLOTS, ( s_ok[i] ? (loaded += 1); i += 1; ));
 i = 0;
 loop(VOICES, ( v_active[i] ? (voices_active += 1); i += 1; ));
 
-gfx_set(0.55, 0.60, 0.68, 1);
+gfx_set(0.35, 0.35, 0.38, 1);
 gfx_x = 12; gfx_y = 88;
 gfx_printf("Slots: %d/%d loaded    Triggers: %d    Voices: %d/%d",
            loaded, SLOTS, trigger_count, voices_active, VOICES);
 
 // ---- Clear All button ----
-gfx_set(0.18, 0.19, 0.23, 1);
+gfx_set(0.86, 0.86, 0.88, 1);
 gfx_rect(ca_x, ca_y, ca_w, ca_h);
-gfx_set(over_ca ? 0.95 : 0.60, 0.60, 0.65, 1);
+gfx_set(over_ca ? 0.05 : 0.25, over_ca ? 0.05 : 0.25, over_ca ? 0.07 : 0.28, 1);
 gfx_x = ca_x + 14; gfx_y = ca_y + 5;
 gfx_drawstr("Clear All");
 
@@ -553,13 +553,13 @@ loop(SLOTS, (
   y = gy + row*(ch+gap);
 
   // background tint
-  s_ok[i] ? gfx_set(0.10, 0.24, 0.15, 1) :
-  s_err[i] ? gfx_set(0.30, 0.10, 0.10, 1) :
-             gfx_set(0.11, 0.12, 0.15, 1);
+  s_ok[i] ? gfx_set(0.82, 0.92, 0.84, 1) :
+  s_err[i] ? gfx_set(0.95, 0.84, 0.84, 1) :
+             gfx_set(0.894, 0.894, 0.902, 1);
   gfx_rect(x, y, cw, ch);
 
   // border (bright blue when hovered)
-  hover == i ? gfx_set(0.35, 0.70, 1.0, 1) : gfx_set(0.30, 0.33, 0.38, 1);
+  hover == i ? gfx_set(0.10, 0.45, 0.85, 1) : gfx_set(0.72, 0.72, 0.75, 1);
   gfx_rect(x, y, cw, 1);
   gfx_rect(x, y+ch-1, cw, 1);
   gfx_rect(x, y, 1, ch);
@@ -567,7 +567,7 @@ loop(SLOTS, (
 
   // slot number + marker (larger font for readability)
   gfx_setfont(1, "Arial", 16);
-  gfx_set(0.60, 0.65, 0.72, 1);
+  gfx_set(0.30, 0.32, 0.36, 1);
   gfx_x = x + 8; gfx_y = y + 6;
   gfx_printf("%d", i+1);
 
@@ -579,37 +579,37 @@ loop(SLOTS, (
     (i == last_slot) ? ( #marker = "LAST"; );
   );
   strlen(#marker) ? (
-    gfx_set(0.95, 0.75, 0.20, 1);
+    gfx_set(0.80, 0.50, 0.05, 1);
     gfx_x = x + 32; gfx_y = y + 6;
     gfx_drawstr(#marker);
   );
 
   s_ok[i] ? (
     // loaded indicator (green dot)
-    gfx_set(0.20, 0.90, 0.40, 1);
+    gfx_set(0.10, 0.60, 0.25, 1);
     gfx_rect(x+cw-42, y+8, 10, 10);
     // x (unload) button
-    gfx_set(0.35, 0.37, 0.42, 1);
+    gfx_set(0.82, 0.82, 0.85, 1);
     gfx_rect(x+cw-24, y+4, 20, 20);
-    gfx_set(0.92, 0.92, 0.96, 1);
+    gfx_set(0.25, 0.25, 0.30, 1);
     gfx_x = x+cw-18; gfx_y = y+6;
     gfx_drawstr("x");
     // file name
     slot_disp(i);
-    gfx_set(1, 1, 1, 1);
+    gfx_set(0.10, 0.10, 0.12, 1);
     gfx_x = x+8; gfx_y = y+34;
     gfx_drawstr(#disp);
     // details
-    gfx_set(0.60, 0.75, 0.70, 1);
+    gfx_set(0.20, 0.42, 0.34, 1);
     gfx_x = x+8; gfx_y = y+60;
     gfx_printf("%.2fs  %dch  %dHz", s_len[i]/s_rate[i], s_nch[i], s_rate[i]);
   ) : (
     s_err[i] ? (
-      gfx_set(0.90, 0.40, 0.40, 1);
+      gfx_set(0.65, 0.10, 0.10, 1);
       gfx_x = x+8; gfx_y = y+34;
       gfx_drawstr("load error");
     ) : (
-      gfx_set(0.40, 0.44, 0.50, 1);
+      gfx_set(0.50, 0.52, 0.55, 1);
       gfx_x = x+8; gfx_y = y+34;
       gfx_drawstr("drop sample here");
     );
