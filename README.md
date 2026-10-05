@@ -1,8 +1,10 @@
-# Trigger
+# Triggve
 
-A lightweight, low-latency REAPER JSFX drum replacement and sample triggering plugin designed for Linux and cross-platform REAPER environments.
+**Hit Happens.**
 
-`Trigger` monitors incoming audio transients on a track, estimates hit velocity from the input peak, and plays a sample from an 8-slot pool. Slots can be filled by drag & drop and are cycled with **Single**, **Round-robin**, or **Random (no immediate repeat)** selection. By default the dry input is muted (**Mix** = 1), so the plugin acts as a full drum replacement.
+A lightweight, low-latency REAPER JSFX drum replacement and sample triggering plugin for Linux and cross-platform REAPER environments. Current version: **beta1**.
+
+`Triggve` monitors incoming audio transients on a track, estimates hit velocity from the input peak, and plays a sample from an 8-slot pool. Slots can be filled by drag & drop and are cycled with **Single**, **Round-robin**, or **Random (no immediate repeat)** selection. By default the dry input is muted (**Mix** = 1), so the plugin acts as a full drum replacement.
 
 ## Features
 
@@ -83,12 +85,12 @@ input (dry) ──────────────────────�
 
 1. Open REAPER.
 2. Navigate to **Options** > **Show REAPER resource path in explorer/finder**.
-3. Copy `Trigger.jsfx` into your `Effects/` directory (or a custom subfolder like `Effects/DrumTools/`).
-4. In REAPER's FX browser, press `F5` to rescan, then search for **Trigger**.
+3. Copy `Triggve.jsfx` into your `Effects/` directory (or a custom subfolder like `Effects/DrumTools/`).
+4. In REAPER's FX browser, press `F5` to rescan, then search for **Triggve**.
 
 ## Usage
 
-1. Insert `Trigger` on the track carrying the drum audio.
+1. Insert `Triggve` on the track carrying the drum audio.
 2. Open the plugin's **floating FX window** (not the TCP-embedded view) so drag & drop works.
 3. Drag a WAV file onto a slot. Repeat for as many slots as you want to use.
 4. Pick a **Sample Selection** mode and adjust Threshold so hits fire reliably without false triggers.
@@ -99,18 +101,14 @@ Notes:
 - Loading happens only in `@gfx` / `@slider` / `@serialize` — never in `@sample` — keeping the audio thread safe.
 - After editing the JSFX on disk, reload the FX (`F5` or reopen) to pick up changes.
 
-## Development & Roadmap
+## Roadmap
 
-- [x] v0.1: Initial architecture, agent instructions (`AGENTS.md`), and core scope
-- [x] v0.2: Core peak detection, hysteresis thresholding, and trigger pulse generation
-- [x] v0.3: JSFX sample buffer loading (drag & drop), unload, and project persistence
-- [x] v0.31: Polyphonic 16-voice playback, linear velocity, full-replacement default
-- [x] v0.4: Single / Round-robin / Random selection modes, larger readable GUI
-- [x] v0.4.1: Output safety ceiling (soft-clip) + click-free transport stop
-- [x] v0.5-beta: Peak-accurate velocity, Output Gain, wet/dry Mix, 96-voice pool
-- [x] Settings pass: detector defaults confirmed good (Threshold −18, Attack 1 ms, Release 5 ms, Holdoff 20 ms, Hysteresis 6 dB)
-- [ ] Onset/derivative detection to decouple retriggering from envelope release time
-- [ ] Optional: longer no-immediate-repeat window and/or per-slot weighting
+Triggve is now in **beta**. Versions progress **beta1 → beta2 → … → 1.0**. Pre-beta development history (v0.1–v0.5) is recorded in [CHANGELOG.md](CHANGELOG.md).
+
+- [x] **beta1** — First beta: transient detector, 8-slot drag & drop pool, 96-voice playback, Single/Round-robin/Random selection, peak-accurate velocity, Output Gain, wet/dry Mix, soft-clip safety ceiling, click-free transport stop.
+- [ ] **beta2** — TBD (candidates: onset/derivative detection, per-slot weighting/enable, longer no-repeat window).
+- [ ] **beta3** — TBD.
+- [ ] **1.0** — Stable release.
 
 ## License
 

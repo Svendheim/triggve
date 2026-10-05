@@ -1,0 +1,35 @@
+# Changelog
+
+All notable changes to **Triggve** are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project uses a beta versioning scheme (`beta1`, `beta2`, … → `1.0`).
+
+## [beta1] — 2026-10-05
+
+First beta release. **Triggve** — *Hit Happens* — is a REAPER JSFX audio-to-sample drum trigger for Linux and cross-platform REAPER.
+
+### Added
+- **Real-time transient detector** with controls for Threshold, Envelope Attack, Envelope Release, Retrigger Holdoff, and Hysteresis.
+- **8-slot sample pool** with drag & drop loading, plus unloading via right-click, a per-slot `x`, or **Clear All**.
+- **Per-slot readout** (length, channels, sample rate); samples are resampled to the project rate and capped at 4 seconds.
+- **Project persistence** of sample paths via `@serialize`, so loaded slots survive project reloads.
+- **96-voice polyphonic playback** with oldest-voice stealing as a fallback.
+- **Peak-accurate velocity** — each sample plays at the hit's peak level (measured over a short window), so triggered samples match the source loudness.
+- **Selection modes** — Single (slot 1), Round-robin, and Random (no immediate repeat).
+- **Output Gain** (−24 … +24 dB makeup) and a **soft-clip safety ceiling** so the output never exceeds 0 dBFS.
+- **Wet/dry Mix** — a linear blend between the dry input and the triggered samples.
+- **Click-free transport stop** via a short fade.
+- **Custom GUI** — a readable slot grid showing loaded state and the last-played slot.
+
+### Changed
+- Defaults to **full replacement** (Mix = 1) rather than mixing the source back in.
+- Velocity now uses the input **peak** instead of the threshold-crossing envelope value, fixing quiet playback.
+
+### Removed
+- Redundant **Sample Level** slider (use **Output Gain** instead).
+
+### Pre-beta history
+Development milestones before beta1: v0.1 (architecture), v0.2 (detection), v0.3 (sample loading + persistence), v0.31 (polyphonic playback, defaults), v0.4 (selection modes + GUI), v0.4.1 (safety ceiling + anti-click stop), v0.5 (peak velocity, Output Gain, wet/dry Mix, 96 voices).
+
+[beta1]: #beta1--2026-10-05

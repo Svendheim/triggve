@@ -1,4 +1,4 @@
-desc:Drum Trigger (v0.4 sample selection)
+desc:Triggve beta1 - Hit Happens
 author:Stein
 tags: drums trigger instrument
 in_pin:left input
@@ -8,16 +8,16 @@ out_pin:right output
 options:maxmem=20000000
 
 // ---------------------------------------------------------------------------
-// v0.4 SCOPE
-//   * Existing v0.2 transient detector
-//   * 8-slot sample pool: drag & drop WAV files onto slots
-//   * Per-slot loaded indicator + length / channels / sample-rate readout
-//   * Unload: right-click a slot, click its "x", or press "Clear All"
+// Triggve beta1 - "Hit Happens"
+// A REAPER JSFX audio-to-sample drum trigger.
+//   * Transient detector: threshold, attack, release, holdoff, hysteresis
+//   * 8-slot sample pool with drag & drop loading and easy unload
+//   * Per-slot length / channels / sample-rate readout
 //   * Slots persist in the project via @serialize
-//   * 16-voice polyphonic playback
-//   * Linear velocity scaling from the transient envelope
+//   * 96-voice polyphonic playback
+//   * Peak-accurate velocity scaling
 //   * Selection modes: Single (slot 1) / Round-robin / Random (no repeat)
-//   * Defaults to FULL REPLACEMENT: input muted, only the sample is heard
+//   * Output Gain, wet/dry Mix, soft-clip safety ceiling, click-free stop
 // ---------------------------------------------------------------------------
 
 slider1:-18<-60,0,0.1>Threshold (dB)
@@ -51,7 +51,7 @@ function setup_geometry() (
   s_rate = META_BASE + SLOTS*3;    // sample rate the slot was resampled to
   s_err  = META_BASE + SLOTS*4;    // load failure flag
 
-  // ---- voice pool (v0.3b) ----
+  // ---- voice pool ----
   VOICES = 96;
   PLAY_SLOT = 0;                   // slot 1 (top-left) = "Single" selection mode
   V_BASE = META_BASE + SLOTS*5;
@@ -83,7 +83,7 @@ trigger_count = 0;
 led = 0;
 pk = 0;                  // peak follower of the current hit (for velocity)
 
-// ---- sample-selection state (v0.4) --------------------------------------
+// ---- sample-selection state --------------------------------------------
 last_slot = -1;      // previous slot chosen by a trigger (-1 = none yet)
 chosen_slot = -1;    // result of select_slot()
 
@@ -508,7 +508,7 @@ rclick && hover >= 0 ? clear_slot(hover);
 gfx_setfont(1, "Arial", 18);
 gfx_set(0.90, 0.92, 0.96, 1);
 gfx_x = 12; gfx_y = 12;
-gfx_drawstr("Trigger - v0.4 sample selection");
+gfx_drawstr("Triggve beta1 - Hit Happens");
 
 gfx_setfont(1, "Arial", 14);
 gfx_set(0.55, 0.60, 0.68, 1);

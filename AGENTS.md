@@ -1,11 +1,13 @@
-# Trigger Project Rules
+# Triggve Project Rules
+
+Triggve — *Hit Happens*. A REAPER JSFX drum trigger.
 
 ## Goal
 Build a REAPER JSFX audio-to-sample drum trigger for Linux.
 
 Version 1:
 - Detect hits from incoming track audio.
-- Trigger WAV samples from a small randomized round-robin pool.
+- Play WAV samples from a small randomized round-robin pool.
 - Support overlapping sample voices.
 - MIDI and velocity layers are out of scope.
 
