@@ -5,6 +5,11 @@ All notable changes to **Triggve** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses a beta versioning scheme (`beta1`, `beta2`, … → `1.0`).
 
+## [Unreleased]
+
+### Added
+- **Dynamic Velocity** toggle (off = samples play at their original volume).
+
 ## [beta1] — 2026-10-05
 
 First beta release. **Triggve** is a REAPER JSFX audio-to-sample drum trigger for Linux and cross-platform REAPER.

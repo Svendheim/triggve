@@ -19,7 +19,7 @@ A lightweight, low-latency REAPER JSFX drum replacement and sample triggering pl
   - **Round-robin** — cycles through loaded slots in order, wrapping and skipping empties.
   - **Random** — uniform pick among loaded slots, never the same as the previous hit.
 - **Polyphonic Playback**: 96 independent voices so sample tails ring out naturally without hard clipping or voice stealing.
-- **Dynamic Velocity Scaling**: Plays each sample at the hit's **peak level** (measured over a short window, not at the threshold crossing), so triggered samples match the source loudness.
+- **Dynamic Velocity Scaling**: Plays each sample at the hit's **peak level** (measured over a short window, not at the threshold crossing), so triggered samples match the source loudness. Can be turned **off** to play every sample at its original volume.
 - **Makeup Output Gain**: A ±24 dB output gain to match quiet sources, protected by the soft-clip ceiling.
 - **Wet/Dry Mix**: A linear blend between the dry input and triggered samples (0 = original only, 1 = samples only), so you can dial in exactly how much of the source to keep.
 - **Output Safety & Anti-Click**: A soft-clip ceiling guarantees the output never exceeds 0 dBFS, and a short transport-stop fade prevents pops when stopping mid-sample.
@@ -34,8 +34,9 @@ A lightweight, low-latency REAPER JSFX drum replacement and sample triggering pl
 | 4 | Retrigger Holdoff (ms) | 20 | 1 … 100 | Minimum time between two triggers. |
 | 5 | Hysteresis (dB) | 6 | 0 … 24 | How far the signal must drop before the detector can fire again. |
 | 6 | Mix | 1.0 | 0 … 1 | Blend of dry input vs. triggered samples. |
-| 7 | Sample Selection | Random | Single / Round-robin / Random | Which loaded slot plays next. |
-| 8 | Output Gain (dB) | 0 | −24 … +24 | Makeup gain for the triggered samples. |
+| 7 | Dynamic Velocity | On | Off / On | Velocity scaling from hit strength. Off = samples play at their original volume. |
+| 8 | Sample Selection | Random | Single / Round-robin / Random | Which loaded slot plays next. |
+| 9 | Output Gain (dB) | 0 | −24 … +24 | Makeup gain for the triggered samples. |
 
 ### How the detector works
 The plugin follows the input with an **envelope**: it rises quickly (Attack) when a hit arrives and falls slowly (Release) when it ends. A trigger fires when the envelope crosses the **Threshold**. After firing, the detector is "disarmed" and only re-arms once the envelope falls below *Threshold minus Hysteresis*; the **Holdoff** also enforces a minimum gap between triggers. Release and Hysteresis together control how fast the next hit can be detected.
