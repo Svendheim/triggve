@@ -24,6 +24,10 @@ A lightweight, low-latency REAPER JSFX drum replacement and sample triggering pl
 - **Wet/Dry Mix**: A linear blend between the dry input and triggered samples (0 = original only, 1 = samples only), so you can dial in exactly how much of the source to keep.
 - **Output Safety & Anti-Click**: A soft-clip ceiling guarantees the output never exceeds 0 dBFS, and a short transport-stop fade prevents pops when stopping mid-sample.
 
+<p align="center">
+  <img src="triggve-ui.png" alt="Triggve UI" width="640">
+</p>
+
 ## Controls
 
 | # | Control | Default | Range | One-line summary |
