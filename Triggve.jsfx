@@ -722,7 +722,7 @@ reading ? (
   strlen(#path31) > 0 ? load_slot(31, #path31);
 );
 
-@gfx 1000 660
+@gfx 1000 630
 
 // ---- mouse / wheel input ----
 gfx_getchar();                       // makes mouse_cap report modifier keys
@@ -770,18 +770,16 @@ strcpy(#lbl, "Mix");
 slider6 = fader(6, slider6, 0, 1, 0.01, 2, 1, cx2, ry, colw, rowh);
 ry += pitch;
 
-strcpy(#lbl, "Output Gain (dB)");
-slider9 = fader(9, slider9, -24, 24, 0.1, 1, 1, cx1, ry, panel_w, rowh);
-ry += pitch;
-
-strcpy(#lbl, "Ghost / Low (dB above thr)");
+strcpy(#lbl, "Ghost / Low");
 slider10 = fader(10, slider10, 0, 48, 1, 0, 1, cx1, ry, colw, rowh);
-strcpy(#lbl, "Low / Medium (dB above thr)");
+strcpy(#lbl, "Low / Medium");
 slider11 = fader(11, slider11, 0, 48, 1, 0, 1, cx2, ry, colw, rowh);
 ry += pitch;
 
-strcpy(#lbl, "Medium / Hard (dB above thr)");
-slider12 = fader(12, slider12, 0, 48, 1, 0, 1, cx1, ry, panel_w, rowh);
+strcpy(#lbl, "Medium / Hard");
+slider12 = fader(12, slider12, 0, 48, 1, 0, 1, cx1, ry, colw, rowh);
+strcpy(#lbl, "Output Gain (dB)");
+slider9 = fader(9, slider9, -24, 24, 0.1, 1, 1, cx2, ry, colw, rowh);
 ry += pitch + 10;
 
 // dropdowns, kept together at the bottom of the panel
