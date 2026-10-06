@@ -19,18 +19,20 @@ options:maxmem=120000000
 //   * Output Gain, wet/dry Mix, soft-clip safety ceiling, click-free stop
 // ---------------------------------------------------------------------------
 
-slider1:-18<-60,0,0.1>Threshold (dB)
-slider2:1<0.1,50,0.1>Envelope Attack (ms)
-slider3:5<1,45,1>Envelope Release (ms)
-slider4:20<1,100,1>Retrigger Holdoff (ms)
-slider5:6<0,24,1>Hysteresis (dB)
-slider6:1<0,1,0.01>Mix
-slider7:0<0,1,1{Dynamic Velocity: Off,Dynamic Velocity: On}>Dynamic Velocity
-slider8:2<0,2,1{Single (first slot),Round-robin,Random}>Sample Selection
-slider9:0<-24,24,0.1>Output Gain (dB)
-slider10:3<0,48,1>Ghost / Low boundary (dB above threshold)
-slider11:9<0,48,1>Low / Medium boundary (dB above threshold)
-slider12:15<0,48,1>Medium / Hard boundary (dB above threshold)
+// The '-' prefix hides REAPER's native slider strip; all controls are drawn
+// in @gfx instead. The parameters stay automatable and are still saved.
+slider1:-18<-60,0,0.1>-Threshold (dB)
+slider2:1<0.1,50,0.1>-Envelope Attack (ms)
+slider3:5<1,45,1>-Envelope Release (ms)
+slider4:20<1,100,1>-Retrigger Holdoff (ms)
+slider5:6<0,24,1>-Hysteresis (dB)
+slider6:1<0,1,0.01>-Mix
+slider7:0<0,1,1{Dynamic Velocity: Off,Dynamic Velocity: On}>-Dynamic Velocity
+slider8:2<0,2,1{Single (first slot),Round-robin,Random}>-Sample Selection
+slider9:0<-24,24,0.1>-Output Gain (dB)
+slider10:3<0,48,1>-Ghost / Low boundary (dB)
+slider11:9<0,48,1>-Low / Medium boundary (dB)
+slider12:15<0,48,1>-Medium / Hard boundary (dB)
 
 @init
 
@@ -73,6 +75,8 @@ setup_geometry();
 
 // ---- GUI state -----------------------------------------------------------
 prev_cap = 0;
+ui_drag = -1;          // id of the fader currently being dragged (-1 = none)
+ui_dirty = 0;          // set when a custom control changed a slider
 
 // ---- voice engine state --------------------------------------------------
 voice_age = 0;
@@ -100,23 +104,28 @@ chosen_slot = -1;    // result of the selection helpers
 li = 0;
 loop(LAYERS, ( last_pick[li] = -1; li += 1; ));
 
-// Derived values (recomputed whenever sliders change)
-thr = 10 ^ (slider1 / 20);
-thr_low = thr * 10 ^ (-slider5 / 20);
-attack_coef = exp(-1 / (srate * slider2 / 1000));
-release_coef = exp(-1 / (srate * slider3 / 1000));
-holdoff_samples = slider4 / 1000 * srate;
-led_coef = exp(-1 / (srate * 0.2));       // ~200 ms LED hold
-pk_coef = exp(-1 / (srate * 0.15));       // ~150 ms peak-follower decay
-peak_window = (srate * 0.025) | 0;        // ~25 ms per-voice peak tracking
-vel_window = (srate * 0.008) | 0;         // ~8 ms hit velocity measurement
-velocity_on = slider7;                    // dynamic velocity scaling (0 = off)
-out_gain = 10 ^ (slider9 / 20);
+// Derived values, recomputed on slider change and after any @gfx interaction.
+function update_derived() (
+  thr = 10 ^ (slider1 / 20);
+  thr_low = thr * 10 ^ (-slider5 / 20);
+  attack_coef = exp(-1 / (srate * slider2 / 1000));
+  release_coef = exp(-1 / (srate * slider3 / 1000));
+  holdoff_samples = slider4 / 1000 * srate;
+  led_coef = exp(-1 / (srate * 0.2));       // ~200 ms LED hold
+  pk_coef = exp(-1 / (srate * 0.15));       // ~150 ms peak-follower decay
+  peak_window = (srate * 0.025) | 0;        // ~25 ms per-voice peak tracking
+  // TODO: this window is fixed at ~8 ms, which is also the extra latency added
+  // to every triggered sample. Worth revisiting (shorter / adjustable /
+  // adaptive) once the velocity layers have been played with for a while.
+  vel_window = (srate * 0.008) | 0;         // ~8 ms hit velocity measurement
+  velocity_on = slider7;                    // dynamic velocity scaling (0 = off)
+  out_gain = 10 ^ (slider9 / 20);
+  b1 = slider1 + slider10;                  // Ghost / Low  (dBFS)
+  b2 = slider1 + slider11;                  // Low / Medium
+  b3 = slider1 + slider12;                  // Medium / Hard
+);
 
-// Velocity-layer boundaries, in dBFS (threshold dB + offset in dB)
-b1 = slider1 + slider10;                  // Ghost / Low
-b2 = slider1 + slider11;                  // Low / Medium
-b3 = slider1 + slider12;                  // Medium / Hard
+update_derived();
 
 // Transport fade: ramp the voice output up/down over ~5 ms on stop/play so
 // the host's hard stop becomes a smooth fade instead of a click.
@@ -124,6 +133,90 @@ play_gain = 1;
 fade_coef = exp(-1 / (srate * 0.005));
 prev_play_state = 0;
 stop_fading = 0;
+
+// ---- custom UI controls (drawn in @gfx) ----------------------------------
+// Callers set #lbl to the row label before calling. LBLW / VALW are the label
+// and value column widths, set once per @gfx pass. Returns the new value.
+//   dec = decimals displayed, mul = multiplier applied to the displayed number
+function fader(id, val, vmin, vmax, vstep, dec, mul, x, y, w, h) local(tx, tw, frac, hov, nv) (
+  tx = x + LBLW;
+  tw = max(w - LBLW - VALW, 40);     // keeps a resized-down window sane
+  hov = (mouse_x >= x && mouse_x <= x+w && mouse_y >= y && mouse_y <= y+h);
+
+  // drag the row, or spin the wheel while hovering it (shift = coarse)
+  hov && lclick ? ( ui_drag = id; );
+
+  (ui_drag == id && (mouse_cap & 1)) ? (
+    frac = min(max((mouse_x - tx) / tw, 0), 1);
+    nv = vmin + frac * (vmax - vmin);
+    val = min(max(floor(nv / vstep + 0.5) * vstep, vmin), vmax);
+    ui_dirty = 1;
+  );
+
+  (hov && mouse_wheel != 0) ? (
+    nv = val + (mouse_wheel / 120) * vstep * ((mouse_cap & 8) ? 10 : 1);
+    val = min(max(floor(nv / vstep + 0.5) * vstep, vmin), vmax);
+    ui_dirty = 1;
+  );
+
+  // label
+  gfx_setfont(1, "Arial", 12);
+  gfx_set(0.30, 0.30, 0.34, 1);
+  gfx_x = x; gfx_y = y + 5;
+  gfx_drawstr(#lbl);
+
+  // track + filled portion + thumb
+  gfx_set(hov ? 0.74 : 0.82, hov ? 0.76 : 0.82, hov ? 0.80 : 0.84, 1);
+  gfx_rect(tx, y+11, tw, 3);
+  frac = min(max((val - vmin) / (vmax - vmin), 0), 1);
+  gfx_set(0.20, 0.45, 0.80, 1);
+  gfx_rect(tx, y+11, frac*tw, 3);
+  gfx_rect(tx + frac*(tw-12), y+5, 12, 15);
+
+  // value readout
+  gfx_set(0.10, 0.10, 0.12, 1);
+  gfx_x = x + w - VALW; gfx_y = y + 5;
+  gfx_drawnumber(val * mul, dec);
+
+  val;
+);
+
+// Dropdown button backed by REAPER's native popup menu. The caller also sets
+// #lbl2 (current option text) and #mopts ("a|b|c" for gfx_showmenu).
+function menu_btn(id, val, x, y, w, h) local(bx, bw, hov, r) (
+  bx = x + LBLW;
+  bw = max(w - LBLW - VALW, 40);
+  hov = (mouse_x >= x && mouse_x <= x+w && mouse_y >= y && mouse_y <= y+h);
+
+  gfx_setfont(1, "Arial", 12);
+  gfx_set(0.30, 0.30, 0.34, 1);
+  gfx_x = x; gfx_y = y + 5;
+  gfx_drawstr(#lbl);
+
+  gfx_set(hov ? 0.88 : 0.96, hov ? 0.90 : 0.96, hov ? 0.95 : 0.97, 1);
+  gfx_rect(bx, y+3, bw, h-8);
+  gfx_set(0.62, 0.62, 0.66, 1);
+  gfx_rect(bx, y+3, bw, 1);
+  gfx_rect(bx, y+h-6, bw, 1);
+  gfx_rect(bx, y+3, 1, h-8);
+  gfx_rect(bx+bw-1, y+3, 1, h-8);
+
+  gfx_set(0.10, 0.10, 0.12, 1);
+  gfx_x = bx + 8; gfx_y = y + 6;
+  gfx_drawstr(#lbl2);
+
+  gfx_set(0.35, 0.35, 0.40, 1);
+  gfx_x = bx + bw - 16; gfx_y = y + 6;
+  gfx_drawstr("v");
+
+  (hov && lclick) ? (
+    gfx_x = bx; gfx_y = y + h;
+    r = gfx_showmenu(#mopts);
+    r > 0 ? ( val = r - 1; ui_dirty = 1; );
+  );
+
+  val;
+);
 
 // Store a loaded file's path into the matching named string slot.
 function set_path(idx, path) (
@@ -439,20 +532,7 @@ function flush_velocity() local(vdb, lay) (
 
 @slider
 
-thr = 10 ^ (slider1 / 20);
-thr_low = thr * 10 ^ (-slider5 / 20);
-attack_coef = exp(-1 / (srate * slider2 / 1000));
-release_coef = exp(-1 / (srate * slider3 / 1000));
-holdoff_samples = slider4 / 1000 * srate;
-pk_coef = exp(-1 / (srate * 0.15));       // ~150 ms peak-follower decay
-peak_window = (srate * 0.025) | 0;        // ~25 ms per-voice peak tracking
-vel_window = (srate * 0.008) | 0;         // ~8 ms hit velocity measurement
-velocity_on = slider7;                    // dynamic velocity scaling (0 = off)
-out_gain = 10 ^ (slider9 / 20);
-fade_coef = exp(-1 / (srate * 0.005));
-b1 = slider1 + slider10;                  // Ghost / Low
-b2 = slider1 + slider11;                  // Low / Medium
-b3 = slider1 + slider12;                  // Medium / Hard
+update_derived();
 
 @sample
 
@@ -642,14 +722,16 @@ reading ? (
   strlen(#path31) > 0 ? load_slot(31, #path31);
 );
 
-@gfx 1000 520
+@gfx 1000 660
 
-// ---- mouse button edge detection ----
+// ---- mouse / wheel input ----
+gfx_getchar();                       // makes mouse_cap report modifier keys
 lmb = mouse_cap & 1;
 rmb = mouse_cap & 2;
 lclick = lmb && !(prev_cap & 1);
 rclick = rmb && !(prev_cap & 2);
 prev_cap = mouse_cap;
+!(mouse_cap & 1) ? ( ui_drag = -1; );   // a drag ends wherever we release
 
 // ---- background ----
 gfx_clear = 1;
@@ -657,15 +739,77 @@ gfx_setfont(1, "Arial", 14);
 gfx_set(236/255, 236/255, 236/255, 1);
 gfx_rect(0, 0, gfx_w, gfx_h);
 
-// ---- layer grid layout ----
+// ---- control panel: two controls per row ----
 pad = 10;
+LBLW = 150;                          // label column of a control row
+VALW = 52;                           // value column of a control row
+panel_w = gfx_w - pad*2;
+colw = (panel_w - 24) / 2;
+cx1 = pad;
+cx2 = pad + colw + 24;
+rowh = 24;
+pitch = 30;
+ry = 64;
+ui_dirty = 0;
+
+strcpy(#lbl, "Threshold (dB)");
+slider1 = fader(1, slider1, -60, 0, 0.1, 1, 1, cx1, ry, colw, rowh);
+strcpy(#lbl, "Envelope Attack (ms)");
+slider2 = fader(2, slider2, 0.1, 50, 0.1, 1, 1, cx2, ry, colw, rowh);
+ry += pitch;
+
+strcpy(#lbl, "Envelope Release (ms)");
+slider3 = fader(3, slider3, 1, 45, 1, 0, 1, cx1, ry, colw, rowh);
+strcpy(#lbl, "Retrigger Holdoff (ms)");
+slider4 = fader(4, slider4, 1, 100, 1, 0, 1, cx2, ry, colw, rowh);
+ry += pitch;
+
+strcpy(#lbl, "Hysteresis (dB)");
+slider5 = fader(5, slider5, 0, 24, 1, 0, 1, cx1, ry, colw, rowh);
+strcpy(#lbl, "Mix");
+slider6 = fader(6, slider6, 0, 1, 0.01, 2, 1, cx2, ry, colw, rowh);
+ry += pitch;
+
+strcpy(#lbl, "Output Gain (dB)");
+slider9 = fader(9, slider9, -24, 24, 0.1, 1, 1, cx1, ry, panel_w, rowh);
+ry += pitch;
+
+strcpy(#lbl, "Ghost / Low (dB above thr)");
+slider10 = fader(10, slider10, 0, 48, 1, 0, 1, cx1, ry, colw, rowh);
+strcpy(#lbl, "Low / Medium (dB above thr)");
+slider11 = fader(11, slider11, 0, 48, 1, 0, 1, cx2, ry, colw, rowh);
+ry += pitch;
+
+strcpy(#lbl, "Medium / Hard (dB above thr)");
+slider12 = fader(12, slider12, 0, 48, 1, 0, 1, cx1, ry, panel_w, rowh);
+ry += pitch + 10;
+
+// dropdowns, kept together at the bottom of the panel
+strcpy(#lbl, "Dynamic Velocity");
+slider7 ? strcpy(#lbl2, "On") : strcpy(#lbl2, "Off");
+strcpy(#mopts, "Off|On");
+slider7 = menu_btn(7, slider7, cx1, ry, colw, rowh);
+
+strcpy(#lbl, "Sample Selection");
+slider8 == 0 ? strcpy(#lbl2, "Single (first slot)") :
+slider8 == 1 ? strcpy(#lbl2, "Round-robin") :
+                strcpy(#lbl2, "Random");
+strcpy(#mopts, "Single (first slot)|Round-robin|Random");
+slider8 = menu_btn(8, slider8, cx2, ry, colw, rowh);
+
+panel_bottom = ry + rowh;
+
+ui_dirty ? update_derived();
+mouse_wheel = 0;
+mouse_hwheel = 0;
+
+// ---- layer grid layout ----
 gap = 8;
 gutter = 86;          // width of the layer-label column on the left
 cols = SPL;           // 8 slots across
 rows = LAYERS;        // one row per velocity layer
-top_h = 104;
 gx = pad + gutter;
-gy = top_h + pad;
+gy = panel_bottom + 14;
 gw = gfx_w - gx - pad;
 gh = gfx_h - gy - pad;
 cw = (gw - (cols-1)*gap) / cols;
@@ -712,38 +856,25 @@ lclick && xbtn >= 0 ? clear_slot(xbtn);
 rclick && hover >= 0 ? clear_slot(hover);
 
 // ---- header ----
-gfx_setfont(1, "Arial", 18);
+gfx_setfont(1, "Arial", 17);
 gfx_set(0.12, 0.12, 0.14, 1);
-gfx_x = 12; gfx_y = 12;
+gfx_x = 12; gfx_y = 10;
 gfx_drawstr("Triggve beta2");
 
-gfx_setfont(1, "Arial", 13);
-gfx_set(0.35, 0.35, 0.38, 1);
-gfx_x = 12; gfx_y = 42;
-gfx_drawstr("Drop WAVs onto the layer rows. Right-click or click x to unload.");
-
-// selection mode + last pick
-slider8 == 0 ? strcpy(#selname, "Single") :
-slider8 == 1 ? strcpy(#selname, "Round-robin") :
-                strcpy(#selname, "Random");
-last_slot < 0 ? strcpy(#lastname, "-") : sprintf(#lastname, "%d", last_slot+1);
-layer_name(last_layer);
-sprintf(#buf, "Mode: %s    Last: %s, slot %s", #selname, #layname, #lastname);
-gfx_set(0.05, 0.30, 0.60, 1);
-gfx_x = 12; gfx_y = 64;
-gfx_drawstr(#buf);
-
 loaded = 0;
-voices_active = 0;
 i = 0;
 loop(SLOTS, ( s_ok[i] ? (loaded += 1); i += 1; ));
+voices_active = 0;
 i = 0;
 loop(VOICES, ( v_active[i] ? (voices_active += 1); i += 1; ));
+last_slot < 0 ? strcpy(#lastname, "-") : sprintf(#lastname, "%d", last_slot+1);
+layer_name(last_layer);
 
-gfx_set(0.35, 0.35, 0.38, 1);
-gfx_x = 12; gfx_y = 86;
-gfx_printf("Slots: %d/%d loaded    Triggers: %d    Voices: %d/%d",
-           loaded, SLOTS, trigger_count, voices_active, VOICES);
+gfx_setfont(1, "Arial", 12);
+gfx_set(0.05, 0.30, 0.60, 1);
+gfx_x = 12; gfx_y = 40;
+gfx_printf("Slots %d/%d loaded    Triggers %d    Voices %d/%d    Last: %s, slot %s",
+           loaded, SLOTS, trigger_count, voices_active, VOICES, #layname, #lastname);
 
 // ---- Clear All button ----
 gfx_set(0.86, 0.86, 0.88, 1);

@@ -24,12 +24,15 @@ A lightweight, low-latency REAPER JSFX drum replacement and sample triggering pl
 - **Makeup Output Gain**: A ±24 dB output gain to match quiet sources, protected by the soft-clip ceiling.
 - **Wet/Dry Mix**: A linear blend between the dry input and triggered samples (0 = original only, 1 = samples only), so you can dial in exactly how much of the source to keep.
 - **Output Safety & Anti-Click**: A soft-clip ceiling guarantees the output never exceeds 0 dBFS, and a short transport-stop fade prevents pops when stopping mid-sample.
+- **Compact Custom UI**: All controls are drawn inside the plugin window, two per row, instead of REAPER's full-width slider strip. They stay fully automatable and are saved with the project.
 
 <p align="center">
   <img src="triggve-ui.png" alt="Triggve UI" width="640">
 </p>
 
 ## Controls
+
+All twelve controls are drawn in the plugin's own window, two per row (the two dropdowns sit at the bottom). They are hidden REAPER parameters, so they remain automatable and are stored with the project. Drag a control to set it, or hover it and use the mouse wheel (hold **Shift** for coarser steps).
 
 | # | Control | Default | Range | One-line summary |
 |---|---------|---------|-------|------------------|
@@ -58,6 +61,8 @@ A hit's **peak level** is measured over a short (~8 ms) window, converted to dBF
 - **Hard** — at or above the Medium/Hard boundary.
 
 The plugin then chooses a sample **within that layer** using the Sample Selection mode. If the chosen layer has no samples loaded, it falls back to the nearest *louder* loaded layer, then the nearest softer one, so a hit is never dropped. Each layer keeps its own round-robin/random state, and up to 8 samples per layer give strong protection against machine-gunning.
+
+> **Known trade-off:** that ~8 ms measurement window is also the extra latency added to every triggered sample. It is currently fixed in code (`vel_window` in `Triggve.jsfx`) and may become shorter, adjustable, or adaptive later.
 
 ### What each slider does
 
@@ -138,7 +143,7 @@ Triggve is now in **beta**. Versions progress **beta1 → beta2 → … → 1.0*
 
 - [x] **beta1** — First beta: transient detector, 8-slot drag & drop pool, 96-voice playback, Single/Round-robin/Random selection, peak-accurate velocity, Output Gain, wet/dry Mix, soft-clip safety ceiling, click-free transport stop.
 - [x] **beta2** — **Velocity layers**: Ghost / Low / Medium / Hard, up to 8 slots each (32 total), dB-boundary classification from the hit peak, per-layer Single/Round-robin/Random selection, layer-per-row GUI, Dynamic Velocity defaults off.
-- [ ] **beta3** — TBD (candidates: onset/derivative detection, a separate rimshot/articulation detector, per-slot weighting/enable, longer no-repeat window).
+- [ ] **beta3** — TBD (candidates: tune or parameterise the fixed ~8 ms velocity window, onset/derivative detection, a separate rimshot/articulation detector, per-slot weighting/enable, longer no-repeat window).
 - [ ] **1.0** — Stable release.
 
 ## License
