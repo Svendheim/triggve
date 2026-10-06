@@ -87,7 +87,7 @@ loop(VOICES, ( v_active[vi] = 0; v_track[vi] = 0; vi += 1; ));
 env = 0;
 armed = 1;
 holdoff_counter = 0;
-trigger = 0;
+trig = 0;                  // 1 on the sample where a hit fires
 trigger_count = 0;
 led = 0;
 pk = 0;                  // peak follower of the current hit (for velocity)
@@ -562,11 +562,13 @@ pk = max(in, pk * pk_coef);
 env < thr_low ? (armed = 1; pk = 0; );
 
 // --- fire a trigger? ---
-trigger = 0;
+// NOTE: this must NOT be called `trigger` -- that is a reserved JSFX variable,
+// and referencing it makes REAPER draw its 10-button trigger panel.
+trig = 0;
 (env >= thr) && armed && (holdoff_counter <= 0) ? (
   // if a previous hit is still being measured, finalize it first
   vel_pending ? flush_velocity();
-  trigger = 1;
+  trig = 1;
   armed = 0;
   holdoff_counter = holdoff_samples;
   trigger_count += 1;
@@ -584,7 +586,7 @@ trigger = 0;
 );
 
 // --- hold the LED ---
-led = max(led * led_coef, trigger);
+led = max(led * led_coef, trig);
 
 // --- polyphonic voice playback (accumulate voice output separately) ---
 vosl = 0;
@@ -722,7 +724,7 @@ reading ? (
   strlen(#path31) > 0 ? load_slot(31, #path31);
 );
 
-@gfx 1000 630
+@gfx 1000 610
 
 // ---- mouse / wheel input ----
 gfx_getchar();                       // makes mouse_cap report modifier keys
@@ -749,7 +751,7 @@ cx1 = pad;
 cx2 = pad + colw + 24;
 rowh = 24;
 pitch = 30;
-ry = 64;
+ry = 40;
 ui_dirty = 0;
 
 strcpy(#lbl, "Threshold (dB)");
@@ -853,12 +855,7 @@ lclick && over_ca ? clear_all();
 lclick && xbtn >= 0 ? clear_slot(xbtn);
 rclick && hover >= 0 ? clear_slot(hover);
 
-// ---- header ----
-gfx_setfont(1, "Arial", 17);
-gfx_set(0.12, 0.12, 0.14, 1);
-gfx_x = 12; gfx_y = 10;
-gfx_drawstr("Triggve beta2");
-
+// ---- status strip (the plugin name is already in REAPER's title bar) ----
 loaded = 0;
 i = 0;
 loop(SLOTS, ( s_ok[i] ? (loaded += 1); i += 1; ));
@@ -870,7 +867,7 @@ layer_name(last_layer);
 
 gfx_setfont(1, "Arial", 12);
 gfx_set(0.05, 0.30, 0.60, 1);
-gfx_x = 12; gfx_y = 40;
+gfx_x = 12; gfx_y = 12;
 gfx_printf("Slots %d/%d loaded    Triggers %d    Voices %d/%d    Last: %s, slot %s",
            loaded, SLOTS, trigger_count, voices_active, VOICES, #layname, #lastname);
 

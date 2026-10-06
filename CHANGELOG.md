@@ -20,6 +20,8 @@ and this project uses a beta versioning scheme (`beta1`, `beta2`, … → `1.0`)
 - Sample capacity raised from 8 to **32** slots; `maxmem` raised to 120M slots to cover high sample rates.
 - GUI widened to a 4×8 layer grid with row labels showing each layer's velocity range.
 - **Controls are now drawn in the plugin's own UI**, two per row, replacing REAPER's full-width slider strip (parameters are hidden with the `-` prefix and remain automatable). Numeric controls support drag and mouse wheel; the two dropdowns use REAPER's native popup menu.
+- Renamed the internal `trigger` flag to `trig`. `trigger` is a reserved JSFX variable — using it made REAPER show its 10-button trigger panel and meant we were writing to a host-owned variable every sample.
+- Dropped the in-canvas "Triggve" title; REAPER's FX title bar already names the plugin. The status strip moved up and the window is 50 px shorter overall.
 
 ### Notes
 - The velocity-measurement window is fixed at ~8 ms (`vel_window`), which is also the added latency per triggered sample; revisiting this (shorter / adjustable / adaptive) is a beta3 candidate.
