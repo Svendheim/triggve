@@ -12,7 +12,7 @@ and this project uses a beta versioning scheme (`beta1`, `beta2`, … → `1.0`)
 - **32-slot sample pool** (4 layers × up to 8 slots), arranged in a layer-per-row grid.
 - **Layer boundary sliders** (sliders 10–12) defining the dB offsets above Threshold where each layer begins, with fallback to the nearest loaded layer when a layer is empty.
 - **Per-layer selection state** — Single / Round-robin / Random now cycle within the chosen layer, giving up to 8 samples per hit strength.
-- **Deferred velocity measurement** — a short (~2 ms) window captures the true hit peak before the layer and sample are chosen.
+- **Deferred velocity measurement** — a short (~1 ms) window captures the true hit peak before the layer and sample are chosen.
 - **Dynamic Velocity** toggle (off = samples play at their original volume).
 
 ### Changed
@@ -22,9 +22,10 @@ and this project uses a beta versioning scheme (`beta1`, `beta2`, … → `1.0`)
 - **Controls are now drawn in the plugin's own UI**, two per row, replacing REAPER's full-width slider strip (parameters are hidden with the `-` prefix and remain automatable). Numeric controls support drag and mouse wheel; the two dropdowns use REAPER's native popup menu.
 - Renamed the internal `trigger` flag to `trig`. `trigger` is a reserved JSFX variable — using it made REAPER show its 10-button trigger panel and meant we were writing to a host-owned variable every sample.
 - Dropped the in-canvas "Triggve" title; REAPER's FX title bar already names the plugin. The status strip moved up and the window is 50 px shorter overall.
+- **Envelope Attack default lowered from 1 ms to 0.3 ms**, so the detector adds less lag between the dry hit and the triggered sample. Defaults only apply to freshly inserted instances — existing projects keep their saved value.
 
 ### Notes
-- The velocity-measurement window is ~2 ms (`vel_window`), which is also the added latency per triggered sample. 8 ms audibly flammed against the dry input at Mix < 1; 2 ms is below that threshold. Making it adjustable or adaptive remains a beta3 candidate.
+- The velocity-measurement window is ~1 ms (`vel_window`). It is also the added latency per triggered sample, which colours the dry/wet sum at Mix < 1 (comb-filter nulls sit at odd multiples of `1 / (2 × window)`, so 8 ms landed them at 62/187/312 Hz and 1 ms pushes them to 500/1500/2500 Hz). Making the window adjustable or adaptive remains a beta3 candidate.
 
 ## [beta1] — 2026-10-05
 

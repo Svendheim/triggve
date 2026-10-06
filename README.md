@@ -37,7 +37,7 @@ All twelve controls are drawn in the plugin's own window, two per row (the two d
 | # | Control | Default | Range | One-line summary |
 |---|---------|---------|-------|------------------|
 | 1 | Threshold (dB) | −18 | −60 … 0 | How loud a hit must be to trigger. |
-| 2 | Envelope Attack (ms) | 1 | 0.1 … 50 | How quickly the detector reacts to a rising hit. |
+| 2 | Envelope Attack (ms) | 0.3 | 0.1 … 50 | How quickly the detector reacts to a rising hit. |
 | 3 | Envelope Release (ms) | 5 | 1 … 45 | How quickly the detector lets go after a hit (also sets re-arm speed). |
 | 4 | Retrigger Holdoff (ms) | 20 | 1 … 100 | Minimum time between two triggers. |
 | 5 | Hysteresis (dB) | 6 | 0 … 24 | How far the signal must drop before the detector can fire again. |
@@ -53,7 +53,7 @@ All twelve controls are drawn in the plugin's own window, two per row (the two d
 The plugin follows the input with an **envelope**: it rises quickly (Attack) when a hit arrives and falls slowly (Release) when it ends. A trigger fires when the envelope crosses the **Threshold**. After firing, the detector is "disarmed" and only re-arms once the envelope falls below *Threshold minus Hysteresis*; the **Holdoff** also enforces a minimum gap between triggers. Release and Hysteresis together control how fast the next hit can be detected.
 
 ### How velocity layers work
-A hit's **peak level** is measured over a short (~2 ms) window, converted to dBFS, and compared against three boundaries derived from the Threshold: `Threshold + slider 10`, `Threshold + slider 11`, and `Threshold + slider 12`. The result picks a layer:
+A hit's **peak level** is measured over a short (~1 ms) window, converted to dBFS, and compared against three boundaries derived from the Threshold: `Threshold + slider 10`, `Threshold + slider 11`, and `Threshold + slider 12`. The result picks a layer:
 
 - **Ghost** — below the Ghost/Low boundary.
 - **Low** — between the Ghost/Low and Low/Medium boundaries.
@@ -62,7 +62,7 @@ A hit's **peak level** is measured over a short (~2 ms) window, converted to dBF
 
 The plugin then chooses a sample **within that layer** using the Sample Selection mode. If the chosen layer has no samples loaded, it falls back to the nearest *louder* loaded layer, then the nearest softer one, so a hit is never dropped. Each layer keeps its own round-robin/random state, and up to 8 samples per layer give strong protection against machine-gunning.
 
-> **Known trade-off:** that measurement window is also the extra latency added to every triggered sample, which you hear as a flam against the dry input when **Mix** is below 1. It is currently fixed at ~2 ms in code (`vel_window` in `Triggve.jsfx`) — short enough to be inaudible, long enough to catch the transient peak. Making it adjustable or adaptive is a beta3 candidate.
+> **Known trade-off:** that measurement window is also the extra latency added to every triggered sample. With **Mix** below 1 the dry and triggered signals sum, and any offset between them colours the result (comb filtering: nulls at odd multiples of `1 / (2 × window)`, so a shorter window pushes the damage up in frequency). It is fixed at **~1 ms** in code (`vel_window` in `Triggve.jsfx`); **Envelope Attack** adds a little more detector lag, so keep it low when blending. Making the window adjustable or adaptive is a beta3 candidate.
 
 ### What each slider does
 
@@ -70,7 +70,7 @@ The plugin then chooses a sample **within that layer** using the Sample Selectio
 The level the envelope must reach to fire. **Lower** = more sensitive (quiet/ghost notes trigger), **higher** = only strong hits trigger. Range −60 … 0 dB. Tune it so real hits fire but bleed/tails don't.
 
 **2. Envelope Attack (ms)** — how fast the detector *reacts* to a rise.
-**Lower** = snappier tracking of sharp transients; **higher** = smoother, ignoring very short clicks/noise. This shapes *detection only* — it does not change the played sample. Default 1 ms.
+**Lower** = snappier tracking of sharp transients; **higher** = smoother, ignoring very short clicks/noise. This shapes *detection only* — it does not change the played sample. Default **0.3 ms**: it is deliberately low because a slow attack delays the trigger, and that delay shows up as phasing against the dry input when you blend with **Mix**. Raise it if bleed or clicks cause false triggers.
 
 **3. Envelope Release (ms)** — how fast the detector *lets go* after a hit.
 This is the main control over **retrigger speed**: a shorter release drops below the re-arm point faster, allowing rapid successive hits. **Too short** and a long/ringy hit may re-fire. Default 5 ms.
@@ -104,7 +104,7 @@ These are offsets from the **Threshold**, so the whole scheme moves with your se
 input ──► detector (Attack/Release/Threshold/Hysteresis/Holdoff) ──► trigger
                                                                       │
                                                                       ▼
-                       velocity window (~2 ms) ──► layer (Ghost/Low/Medium/Hard)
+                       velocity window (~1 ms) ──► layer (Ghost/Low/Medium/Hard)
                                                                       │
                                                                       ▼
                  slot pool, within layer (Selection) ──► voice ──► × Output Gain ──► soft-clip
@@ -143,7 +143,7 @@ Triggve is now in **beta**. Versions progress **beta1 → beta2 → … → 1.0*
 
 - [x] **beta1** — First beta: transient detector, 8-slot drag & drop pool, 96-voice playback, Single/Round-robin/Random selection, peak-accurate velocity, Output Gain, wet/dry Mix, soft-clip safety ceiling, click-free transport stop.
 - [x] **beta2** — **Velocity layers**: Ghost / Low / Medium / Hard, up to 8 slots each (32 total), dB-boundary classification from the hit peak, per-layer Single/Round-robin/Random selection, layer-per-row GUI, Dynamic Velocity defaults off.
-- [ ] **beta3** — TBD (candidates: make the ~2 ms velocity window adjustable or adaptive, onset/derivative detection, a separate rimshot/articulation detector, per-slot weighting/enable, longer no-repeat window).
+- [ ] **beta3** — TBD (candidates: make the ~1 ms velocity window adjustable or adaptive, onset/derivative detection, a separate rimshot/articulation detector, per-slot weighting/enable, longer no-repeat window).
 - [ ] **1.0** — Stable release.
 
 ## License

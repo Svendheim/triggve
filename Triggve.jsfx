@@ -22,7 +22,7 @@ options:maxmem=120000000
 // The '-' prefix hides REAPER's native slider strip; all controls are drawn
 // in @gfx instead. The parameters stay automatable and are still saved.
 slider1:-18<-60,0,0.1>-Threshold (dB)
-slider2:1<0.1,50,0.1>-Envelope Attack (ms)
+slider2:0.3<0.1,50,0.1>-Envelope Attack (ms)
 slider3:5<1,45,1>-Envelope Release (ms)
 slider4:20<1,100,1>-Retrigger Holdoff (ms)
 slider5:6<0,24,1>-Hysteresis (dB)
@@ -114,13 +114,15 @@ function update_derived() (
   led_coef = exp(-1 / (srate * 0.2));       // ~200 ms LED hold
   pk_coef = exp(-1 / (srate * 0.15));       // ~150 ms peak-follower decay
   peak_window = (srate * 0.025) | 0;        // ~25 ms per-voice peak tracking
-  // TODO: tuned default, not a hard rule. This window is also the extra latency
-  // added to every triggered sample, which shows up as a flam against the dry
-  // input when Mix < 1. 8 ms was audible; 2 ms is below the perception
-  // threshold while still catching the transient peak (hit_peak is seeded from
-  // the peak follower at the threshold crossing). Re-examine, or make it a
-  // control, if the layer split ever starts feeling imprecise.
-  vel_window = (srate * 0.002) | 0;         // ~2 ms hit velocity measurement
+  // Measurement window for the hit peak. This is also the extra latency added
+  // to every triggered sample, which shows up as comb filtering / phasing
+  // against the dry input when Mix < 1: the nulls land at odd multiples of
+  // 1/(2*window), so 8 ms puts them at 62/187/312 Hz (very hollow) while 1 ms
+  // pushes them up to 500/1500/2500 Hz. 1 ms is the floor that still reliably
+  // catches the transient peak, since hit_peak is seeded from the peak follower
+  // at the threshold crossing. Not a user control yet -- see the beta3 note
+  // about making it adjustable or adaptive.
+  vel_window = (srate * 0.001) | 0;         // ~1 ms hit velocity measurement
   velocity_on = slider7;                    // dynamic velocity scaling (0 = off)
   out_gain = 10 ^ (slider9 / 20);
   b1 = slider1 + slider10;                  // Ghost / Low  (dBFS)
