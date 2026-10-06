@@ -119,4 +119,4 @@ Triggve is now in **beta**. Versions progress **beta1 → beta2 → … → 1.0*
 
 ## License
 
-Not decided, but GPL or MIT I guess.
+Released under the [MIT License](LICENSE).
