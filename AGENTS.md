@@ -1,6 +1,6 @@
 # Triggve Project Rules
 
-Triggve — *Hit Happens*. A REAPER JSFX drum trigger.
+Triggve — a REAPER JSFX drum trigger.
 
 ## Goal
 Build a REAPER JSFX audio-to-sample drum trigger for Linux.

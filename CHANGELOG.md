@@ -7,7 +7,7 @@ and this project uses a beta versioning scheme (`beta1`, `beta2`, … → `1.0`)
 
 ## [beta1] — 2026-10-05
 
-First beta release. **Triggve** — *Hit Happens* — is a REAPER JSFX audio-to-sample drum trigger for Linux and cross-platform REAPER.
+First beta release. **Triggve** is a REAPER JSFX audio-to-sample drum trigger for Linux and cross-platform REAPER.
 
 ### Added
 - **Real-time transient detector** with controls for Threshold, Envelope Attack, Envelope Release, Retrigger Holdoff, and Hysteresis.
