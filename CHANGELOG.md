@@ -5,6 +5,25 @@ All notable changes to **Triggve** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses a beta versioning scheme (`beta1`, `beta2`, … → `1.0`).
 
+## [Unreleased]
+
+### Added
+- **MIDI triggering** — new **Trigger Source** control (Audio / MIDI, default **MIDI**). Note-ons are drained once per block in `@block` and fired inside `@sample` at their **exact sample offset**, so timing is sample-accurate at any audio block size. Note-ons with velocity 0 are treated as note-offs and never trigger.
+- **MIDI velocity zones** — the four rows are now fixed zones driven by note velocity: **Low 1–40**, **Medium 41–89**, **Hard 90–126**, **Rimshot 127**. Empty zones fall back to the nearest loaded zone, so a hit is never dropped.
+- **MIDI Channel filter** (**All** / 1–16): notes on non-matching channels never trigger and always pass through untouched.
+- **MIDI Passthrough** toggle (default **On**). Off swallows the note-on/note-off messages Triggve consumes on the selected channel; every other event (CC, pitch bend, program change, other channels) still flows downstream.
+- **Source-aware GUI** — MIDI mode shows the four zone rows and a `N/32` status; Audio mode shows a single 8-slot **Hits** bank and a `N/8` status.
+
+### Changed
+- **Audio triggers fire immediately at the threshold crossing.** The ~1 ms velocity-measurement window is gone: no more added latency per triggered voice, which removes the comb filtering against the dry input at Mix < 1. Voice gain still converges — the per-voice 25 ms peak tracker refines it *after* the voice has started.
+- **Audio uses a single 8-slot bank** (slots 1–8). It never falls back into the MIDI zones, which are hidden in Audio mode.
+- **Velocity layers removed from the audio path.** Hit-strength classification proved unreliable from audio peaks; it lives on exactly where velocity *is* exact — MIDI note velocity.
+- **Dynamic Velocity now defaults to On** (it was Off in beta2, because layers carried the loudness). In MIDI mode gain = `velocity / 127`; in Audio mode it is the hit's peak. Zone/bank selection is unaffected by the toggle; set it Off to let your zone samples carry the loudness at original volume.
+- UI rows: the three layer-boundary faders are replaced by **Trigger Source**, **MIDI Channel**, and **MIDI Passthrough** dropdowns.
+
+### Removed
+- Velocity-layer boundary sliders (10–12) and dBFS boundary classification. Slider numbers 10–12 stay unallocated on purpose, so boundary values saved by beta2 projects cannot shift into the new MIDI controls.
+
 ## [beta2] — 2026-10-06
 
 ### Added

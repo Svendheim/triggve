@@ -1,4 +1,4 @@
-desc:Triggve beta2
+desc:Triggve beta3
 author:Stein
 tags: drums trigger instrument
 in_pin:left input
@@ -8,15 +8,16 @@ out_pin:right output
 options:maxmem=120000000
 
 // ---------------------------------------------------------------------------
-// Triggve beta2 - a REAPER JSFX audio-to-sample drum trigger.
-// A REAPER JSFX audio-to-sample drum trigger.
+// Triggve beta3 - a REAPER JSFX audio-to-sample drum trigger.
+//   * Trigger source: audio transients, or MIDI note-ons with velocity zones
 //   * Transient detector: threshold, attack, release, holdoff, hysteresis
-//   * 4 velocity layers (Ghost / Low / Medium / Hard), 8 slots each (32 total)
-//   * Velocity layer chosen from the hit's peak, measured over a short window
-//   * Per-layer selection: Single / Round-robin / Random (no immediate repeat)
+//   * MIDI velocity zones: Low 1-40 / Medium 41-89 / Hard 90-126 / Rimshot 127
+//   * Audio source plays a single 8-slot bank, fired immediately at threshold
+//   * Per-zone selection: Single / Round-robin / Random (no immediate repeat)
 //   * Drag & drop loading, per-slot readout, easy unload, project persistence
-//   * 96-voice polyphonic playback, peak-accurate optional velocity scaling
+//   * 96-voice polyphonic playback, optional dynamic velocity scaling
 //   * Output Gain, wet/dry Mix, soft-clip safety ceiling, click-free stop
+//   * MIDI passthrough (on/off) with channel filter, sample-accurate timing
 // ---------------------------------------------------------------------------
 
 // The '-' prefix hides REAPER's native slider strip; all controls are drawn
@@ -27,12 +28,15 @@ slider3:5<1,45,1>-Envelope Release (ms)
 slider4:20<1,100,1>-Retrigger Holdoff (ms)
 slider5:6<0,24,1>-Hysteresis (dB)
 slider6:1<0,1,0.01>-Mix
-slider7:0<0,1,1{Dynamic Velocity: Off,Dynamic Velocity: On}>-Dynamic Velocity
+slider7:1<0,1,1{Dynamic Velocity: Off,Dynamic Velocity: On}>-Dynamic Velocity
 slider8:2<0,2,1{Single (first slot),Round-robin,Random}>-Sample Selection
 slider9:0<-24,24,0.1>-Output Gain (dB)
-slider10:3<0,48,1>-Ghost / Low boundary (dB)
-slider11:9<0,48,1>-Low / Medium boundary (dB)
-slider12:15<0,48,1>-Medium / Hard boundary (dB)
+// 10-12 are intentionally left unused: an earlier beta2 build used them for
+// velocity-layer boundary offsets. Leaving them unallocated means values saved
+// by those builds can never shift into the MIDI controls below.
+slider13:1<0,1,1{Trigger Source: Audio,Trigger Source: MIDI}>-Trigger Source
+slider14:0<0,16,1{All,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-MIDI Channel
+slider15:1<0,1,1{Passthrough: Off,Passthrough: On}>-MIDI Passthrough
 
 @init
 
@@ -69,6 +73,13 @@ function setup_geometry() (
   v_age    = V_BASE + VOICES*4;    // higher = newer, for voice stealing
   v_peak   = V_BASE + VOICES*5;    // per-voice running peak while tracking
   v_track  = V_BASE + VOICES*6;    // samples left to track a voice's peak
+
+  // ---- MIDI pending queue (events parsed in @block, fired in @sample) ----
+  MAXPEND = 64;
+  P_BASE  = V_BASE + VOICES*7;
+  p_off   = P_BASE;                // sample offset inside the current block
+  p_vel   = P_BASE + MAXPEND;      // note velocity, 1..127
+  p_note  = P_BASE + MAXPEND*2;    // note number (for future note mapping)
 );
 
 setup_geometry();
@@ -92,11 +103,14 @@ trigger_count = 0;
 led = 0;
 pk = 0;                  // peak follower of the current hit (for velocity)
 
-// ---- velocity-layer state -----------------------------------------------
-hit_peak = 0;            // peak of the hit being measured
-vel_pending = 0;         // 1 while a hit's velocity window is running
-vel_count = 0;           // samples left in the velocity window
-last_layer = 0;          // layer chosen for the most recent hit
+// ---- trigger/zone state ---------------------------------------------------
+hit_peak = 0;            // trigger amplitude for the current hit/note
+last_layer = 0;          // zone/bank of the most recent trigger
+
+// ---- MIDI pending queue state (the arrays live in local memory) -----------
+pend_n = 0;              // queued note-ons in the current block
+pend_i = 0;              // queue cursor consumed by @sample
+blk_pos = 0;             // sample position inside the current block
 
 // ---- sample-selection state --------------------------------------------
 last_slot = -1;      // previous slot chosen by a trigger (-1 = none yet)
@@ -114,20 +128,10 @@ function update_derived() (
   led_coef = exp(-1 / (srate * 0.2));       // ~200 ms LED hold
   pk_coef = exp(-1 / (srate * 0.15));       // ~150 ms peak-follower decay
   peak_window = (srate * 0.025) | 0;        // ~25 ms per-voice peak tracking
-  // Measurement window for the hit peak. This is also the extra latency added
-  // to every triggered sample, which shows up as comb filtering / phasing
-  // against the dry input when Mix < 1: the nulls land at odd multiples of
-  // 1/(2*window), so 8 ms puts them at 62/187/312 Hz (very hollow) while 1 ms
-  // pushes them up to 500/1500/2500 Hz. 1 ms is the floor that still reliably
-  // catches the transient peak, since hit_peak is seeded from the peak follower
-  // at the threshold crossing. Not a user control yet -- see the beta3 note
-  // about making it adjustable or adaptive.
-  vel_window = (srate * 0.001) | 0;         // ~1 ms hit velocity measurement
   velocity_on = slider7;                    // dynamic velocity scaling (0 = off)
   out_gain = 10 ^ (slider9 / 20);
-  b1 = slider1 + slider10;                  // Ghost / Low  (dBFS)
-  b2 = slider1 + slider11;                  // Low / Medium
-  b3 = slider1 + slider12;                  // Medium / Hard
+  src_audio = (slider13 == 0);              // trigger source selection
+  src_midi  = (slider13 == 1);
 );
 
 update_derived();
@@ -372,8 +376,8 @@ function select_in_layer(layer) local(base, n, i, j, k, r, c, last) (
   chosen_slot >= 0 ? ( last_pick[layer] = chosen_slot - base; );
 );
 
-// Pick a slot for the requested layer; if that layer is empty, fall back to
-// the nearest *louder* loaded layer, then the nearest softer one.
+// Pick a slot for the requested zone; if that zone is empty, fall back to
+// the nearest higher loaded zone, then the nearest lower one.
 function select_layer(target) local(l) (
   select_in_layer(target);
   chosen_slot < 0 ? (
@@ -386,17 +390,13 @@ function select_layer(target) local(l) (
   );
 );
 
-// Map a hit level (dBFS) to a layer index 0..3 using the boundary offsets.
-function layer_of(vdb) (
-  (vdb < b1) ? 0 : (vdb < b2) ? 1 : (vdb < b3) ? 2 : 3;
-);
-
-// Short display name of a layer, into #layname.
+// Short display name of a MIDI velocity zone, into #layname.
+// Zones are fixed: Low 1-40, Medium 41-89, Hard 90-126, Rimshot 127.
 function layer_name(layer) (
-  layer == 0 ? strcpy(#layname, "Ghost")  :
-  layer == 1 ? strcpy(#layname, "Low")    :
-  layer == 2 ? strcpy(#layname, "Medium") :
-               strcpy(#layname, "Hard");
+  layer == 0 ? strcpy(#layname, "Low")     :
+  layer == 1 ? strcpy(#layname, "Medium")  :
+  layer == 2 ? strcpy(#layname, "Hard")    :
+               strcpy(#layname, "Rimshot");
 );
 
 // Put a short display name (basename, max 14 chars) of slot idx into #disp.
@@ -491,9 +491,11 @@ function softclip(x) local(a) (
   a <= 0.9 ? x : sign(x) * (0.9 + 0.1 * (1 - exp(-(a - 0.9) / 0.1)));
 );
 
-// Start a voice playing the given slot at the current trigger velocity.
+// Start a voice playing the given slot at the current trigger amplitude
+// (hit_peak). trk = 1 keeps refining the gain from the audio input for
+// ~25 ms (audio triggers); trk = 0 freezes it (MIDI velocity is already exact).
 // Grabs a free voice, or steals the oldest one when the pool is full.
-function start_voice(slot) local(i, vfree, oldest) (
+function start_voice(slot, trk) local(i, vfree, oldest) (
   vfree = -1;
   i = 0;
   while (i < VOICES && vfree < 0) (
@@ -513,31 +515,63 @@ function start_voice(slot) local(i, vfree, oldest) (
   v_pos[vfree] = 0;
   v_gain[vfree] = velocity_on ? min(hit_peak, 1) : 1;
   v_slot[vfree] = slot;
-  v_peak[vfree] = hit_peak;        // seed with the measured hit peak
-  v_track[vfree] = peak_window;    // keep refining for ~25 ms
+  v_peak[vfree] = hit_peak;              // seed with the trigger amplitude
+  v_track[vfree] = trk ? peak_window : 0;
   voice_age += 1;
   v_age[vfree] = voice_age;
 );
 
-// End of the velocity window: classify the hit's peak into a layer, pick a
-// slot within it, and start the voice.
-function flush_velocity() local(vdb, lay) (
-  vdb = 20 * log10(max(hit_peak, 0.000000001));
-  lay = layer_of(vdb);
+// Trigger from a MIDI note-on (queued in @block, fired at its exact sample
+// offset in @sample). Velocity is exact, so it picks the zone directly --
+// no measurement window, no peak tracking, zero added latency.
+function fire_midi(vel) local(lay) (
+  lay = vel <= 40 ? 0 : vel <= 89 ? 1 : vel <= 126 ? 2 : 3;
+  hit_peak = vel / 127;
   last_layer = lay;
-  trig_vel = min(hit_peak, 1);
   select_layer(lay);
   chosen_slot >= 0 ? (
-    start_voice(chosen_slot);
+    start_voice(chosen_slot, 0);
     last_slot = chosen_slot;
-    last_layer = (chosen_slot/SPL) | 0;   // reflect any empty-layer fallback
+    last_layer = (chosen_slot/SPL) | 0;   // reflect any empty-zone fallback
   );
-  vel_pending = 0;
 );
 
 @slider
 
 update_derived();
+
+@block
+
+// Drain the MIDI queue once per block. Calling midirecv() disables the host's
+// automatic pass-through, so everything that isn't consumed here has to be
+// re-sent with midisend() or it would vanish from the rest of the FX chain.
+pend_n = 0;
+pend_i = 0;
+blk_pos = 0;
+
+while (midirecv(moff, m1, m2, m3)) (
+  status = m1 & $xF0;
+  chan = (m1 & $x0F) + 1;                       // 1..16
+  isNote = (status == $x90 || status == $x80);
+  chanOk = (slider14 == 0) || (chan == slider14);
+
+  // triggering note-on? queued here, fired at its exact offset in @sample.
+  // Note-ons with velocity 0 are note-offs in disguise: never trigger.
+  (src_midi && status == $x90 && m3 > 0 && chanOk) ? (
+    pend_n < MAXPEND ? (
+      p_off[pend_n] = moff;
+      p_vel[pend_n] = m3;
+      p_note[pend_n] = m2;
+      pend_n += 1;
+    );
+  );
+
+  // forward, except: passthrough off + MIDI source + a note on a matching
+  // channel -- those notes are Triggve's now and get swallowed.
+  (slider15 || !src_midi || !(isNote && chanOk)) ? (
+    midisend(moff, m1, m2, m3);
+  );
+);
 
 @sample
 
@@ -549,49 +583,58 @@ dry_r = spl1;
 in = abs(spl0);
 in = max(in, abs(spl1));
 
-// --- envelope follower: fast attack, slow release ---
-coef = (in > env) ? attack_coef : release_coef;
-env = coef * env + (1 - coef) * in;
-
-// --- holdoff countdown ---
-holdoff_counter > 0 ? (holdoff_counter -= 1);
-
-// --- peak follower for velocity: the largest input excursion of this hit ---
-pk = max(in, pk * pk_coef);
-
-// --- re-arm once the smoothed envelope falls below the lower threshold ---
-// NOTE: onset/derivative detection is planned for later, which would decouple
-// retriggering from the envelope release time. For now, hysteresis + a short
-// release keeps single hits from double-firing while allowing fast retriggers.
-// Re-arming also resets the velocity peak so each hit is measured on its own.
-env < thr_low ? (armed = 1; pk = 0; );
-
-// --- fire a trigger? ---
-// NOTE: this must NOT be called `trigger` -- that is a reserved JSFX variable,
-// and referencing it makes REAPER draw its 10-button trigger panel.
-trig = 0;
-(env >= thr) && armed && (holdoff_counter <= 0) ? (
-  // if a previous hit is still being measured, finalize it first
-  vel_pending ? flush_velocity();
-  trig = 1;
-  armed = 0;
-  holdoff_counter = holdoff_samples;
-  trigger_count += 1;
-  // start measuring this hit's peak; the layer is chosen when the window ends
-  hit_peak = pk;
-  vel_count = vel_window;
-  vel_pending = 1;
+// --- fire queued MIDI note-ons at their exact sample offsets ---
+mtrig = 0;
+while (pend_i < pend_n && blk_pos >= p_off[pend_i]) (
+  fire_midi(p_vel[pend_i]);
+  mtrig = 1;
+  pend_i += 1;
 );
+blk_pos += 1;
 
-// --- velocity window: refine the peak, then choose the layer and play ---
-(vel_pending && vel_count > 0) ? (
-  hit_peak = max(hit_peak, in);
-  vel_count -= 1;
-  (vel_count <= 0) ? flush_velocity();
+// --- audio detection path (only when the trigger source is Audio) ---
+trig = 0;
+src_audio ? (
+  // envelope follower: fast attack, slow release
+  coef = (in > env) ? attack_coef : release_coef;
+  env = coef * env + (1 - coef) * in;
+
+  // holdoff countdown
+  holdoff_counter > 0 ? (holdoff_counter -= 1);
+
+  // peak follower: the largest input excursion of this hit
+  pk = max(in, pk * pk_coef);
+
+  // re-arm once the smoothed envelope falls below the lower threshold.
+  // NOTE: onset/derivative detection is planned for later, which would
+  // decouple retriggering from the envelope release time. Re-arming also
+  // resets the peak follower so each hit is measured on its own.
+  env < thr_low ? (armed = 1; pk = 0; );
+
+  // Fire immediately at the threshold crossing -- no measurement delay, so
+  // there is no added latency to comb-filter against the dry input when
+  // Mix < 1. The voice's own 25 ms peak tracker refines the gain afterwards.
+  // NOTE: this must NOT be called `trigger` -- that is a reserved JSFX
+  // variable, and referencing it makes REAPER draw its 10-button panel.
+  (env >= thr) && armed && (holdoff_counter <= 0) ? (
+    trig = 1;
+    armed = 0;
+    holdoff_counter = holdoff_samples;
+    trigger_count += 1;
+    hit_peak = pk;
+    last_layer = 0;
+    // audio plays the single 8-slot bank only -- it never falls back into
+    // the MIDI zones, which are hidden in this mode
+    select_in_layer(0);
+    chosen_slot >= 0 ? (
+      start_voice(chosen_slot, 1);
+      last_slot = chosen_slot;
+    );
+  );
 );
 
 // --- hold the LED ---
-led = max(led * led_coef, trig);
+led = max(led * led_coef, max(trig, mtrig));
 
 // --- polyphonic voice playback (accumulate voice output separately) ---
 vosl = 0;
@@ -777,30 +820,38 @@ strcpy(#lbl, "Mix");
 slider6 = fader(6, slider6, 0, 1, 0.01, 2, 1, cx2, ry, colw, rowh);
 ry += pitch;
 
-strcpy(#lbl, "Ghost / Low");
-slider10 = fader(10, slider10, 0, 48, 1, 0, 1, cx1, ry, colw, rowh);
-strcpy(#lbl, "Low / Medium");
-slider11 = fader(11, slider11, 0, 48, 1, 0, 1, cx2, ry, colw, rowh);
-ry += pitch;
-
-strcpy(#lbl, "Medium / Hard");
-slider12 = fader(12, slider12, 0, 48, 1, 0, 1, cx1, ry, colw, rowh);
 strcpy(#lbl, "Output Gain (dB)");
-slider9 = fader(9, slider9, -24, 24, 0.1, 1, 1, cx2, ry, colw, rowh);
-ry += pitch + 10;
+slider9 = fader(9, slider9, -24, 24, 0.1, 1, 1, cx1, ry, colw, rowh);
 
-// dropdowns, kept together at the bottom of the panel
 strcpy(#lbl, "Dynamic Velocity");
 slider7 ? strcpy(#lbl2, "On") : strcpy(#lbl2, "Off");
 strcpy(#mopts, "Off|On");
-slider7 = menu_btn(7, slider7, cx1, ry, colw, rowh);
+slider7 = menu_btn(7, slider7, cx2, ry, colw, rowh);
+ry += pitch + 10;
 
+// dropdowns, kept together at the bottom of the panel
 strcpy(#lbl, "Sample Selection");
 slider8 == 0 ? strcpy(#lbl2, "Single (first slot)") :
 slider8 == 1 ? strcpy(#lbl2, "Round-robin") :
                 strcpy(#lbl2, "Random");
 strcpy(#mopts, "Single (first slot)|Round-robin|Random");
-slider8 = menu_btn(8, slider8, cx2, ry, colw, rowh);
+slider8 = menu_btn(8, slider8, cx1, ry, colw, rowh);
+
+strcpy(#lbl, "Trigger Source");
+slider13 == 0 ? strcpy(#lbl2, "Audio") : strcpy(#lbl2, "MIDI");
+strcpy(#mopts, "Audio|MIDI");
+slider13 = menu_btn(13, slider13, cx2, ry, colw, rowh);
+ry += pitch;
+
+strcpy(#lbl, "MIDI Channel");
+slider14 == 0 ? strcpy(#lbl2, "All channels") : sprintf(#lbl2, "Channel %d", slider14);
+strcpy(#mopts, "All|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16");
+slider14 = menu_btn(14, slider14, cx1, ry, colw, rowh);
+
+strcpy(#lbl, "MIDI Passthrough");
+slider15 ? strcpy(#lbl2, "On") : strcpy(#lbl2, "Off");
+strcpy(#mopts, "Off|On");
+slider15 = menu_btn(15, slider15, cx2, ry, colw, rowh);
 
 panel_bottom = ry + rowh;
 
@@ -808,23 +859,26 @@ ui_dirty ? update_derived();
 mouse_wheel = 0;
 mouse_hwheel = 0;
 
-// ---- layer grid layout ----
+// ---- zone grid layout: MIDI shows all four zones, audio only its bank ----
 gap = 8;
-gutter = 86;          // width of the layer-label column on the left
+gutter = 86;          // width of the zone-label column on the left
 cols = SPL;           // 8 slots across
-rows = LAYERS;        // one row per velocity layer
+rows = slider13 == 0 ? 1 : LAYERS;
+vis = rows * SPL;     // visible slots (audio mode hides zones 2..4)
 gx = pad + gutter;
 gy = panel_bottom + 14;
 gw = gfx_w - gx - pad;
 gh = gfx_h - gy - pad;
 cw = (gw - (cols-1)*gap) / cols;
 ch = (gh - (rows-1)*gap) / rows;
+ch_cap = (gh - (LAYERS-1)*gap) / LAYERS;
+ch > ch_cap ? ch = ch_cap;   // audio mode: don't balloon the single row
 
 // ---- hover / x-button hit testing ----
 hover = -1;
 xbtn = -1;
 i = 0;
-loop(SLOTS, (
+loop(vis, (
   layer = (i/SPL) | 0;
   col = i - layer*SPL;
   x = gx + col*(cw+gap);
@@ -849,6 +903,8 @@ while (gfx_getdropfile(n, #dropfile)) (
   t = hover >= 0 ? (hover + n) : first_empty();
   t >= SLOTS ? t = SLOTS - 1;
   t < 0 ? t = 0;
+  // audio mode: the visible bank is the first row, keep drops inside it
+  (slider13 == 0 && t >= SPL) ? t = SPL - 1;
   set_path(t, #dropfile);
   load_slot(t, #dropfile);
   n += 1;
@@ -863,18 +919,21 @@ rclick && hover >= 0 ? clear_slot(hover);
 // ---- status strip (the plugin name is already in REAPER's title bar) ----
 loaded = 0;
 i = 0;
-loop(SLOTS, ( s_ok[i] ? (loaded += 1); i += 1; ));
+loop(vis, ( s_ok[i] ? (loaded += 1); i += 1; ));
 voices_active = 0;
 i = 0;
 loop(VOICES, ( v_active[i] ? (voices_active += 1); i += 1; ));
-last_slot < 0 ? strcpy(#lastname, "-") : sprintf(#lastname, "%d", last_slot+1);
-layer_name(last_layer);
+last_slot < 0 ? strcpy(#laststr, "Last: -") :
+slider13 == 0 ? sprintf(#laststr, "Last: slot %d", last_slot+1) : (
+  layer_name(last_layer);
+  sprintf(#laststr, "Last: %s, slot %d", #layname, last_slot+1);
+);
 
 gfx_setfont(1, "Arial", 12);
 gfx_set(0.05, 0.30, 0.60, 1);
 gfx_x = 12; gfx_y = 12;
-gfx_printf("Slots %d/%d loaded    Triggers %d    Voices %d/%d    Last: %s, slot %s",
-           loaded, SLOTS, trigger_count, voices_active, VOICES, #layname, #lastname);
+gfx_printf("Slots %d/%d loaded    Triggers %d    Voices %d/%d    %s",
+           loaded, vis, trigger_count, voices_active, VOICES, #laststr);
 
 // ---- Clear All button ----
 gfx_set(0.86, 0.86, 0.88, 1);
@@ -883,30 +942,31 @@ gfx_set(over_ca ? 0.05 : 0.25, over_ca ? 0.05 : 0.25, over_ca ? 0.07 : 0.28, 1);
 gfx_x = ca_x + 14; gfx_y = ca_y + 5;
 gfx_drawstr("Clear All");
 
-// ---- layer labels (left gutter) ----
+// ---- zone labels (left gutter) ----
 layer = 0;
-loop(LAYERS, (
+loop(rows, (
   y0 = gy + layer*(ch+gap);
   active = (layer == last_layer);
 
-  // tint panels, highlight the last-fired layer
+  // tint panels, highlight the zone of the last trigger
   gfx_set(active ? 0.98 : 0.90, active ? 0.93 : 0.90, active ? 0.80 : 0.92, 1);
   gfx_rect(pad, y0, gutter-4, ch);
 
-  // layer name
-  layer_name(layer);
+  // zone name
+  slider13 == 0 ? strcpy(#layname, "Hits") : layer_name(layer);
   gfx_setfont(1, "Arial", 15);
   gfx_set(active ? 0.75 : 0.25, active ? 0.35 : 0.25, active ? 0.05 : 0.30, 1);
   gfx_x = pad + 8; gfx_y = y0 + 16;
   gfx_drawstr(#layname);
 
-  // velocity range in dBFS
+  // fixed MIDI velocity ranges per zone
   gfx_setfont(1, "Arial", 11);
   gfx_set(0.40, 0.40, 0.45, 1);
-  layer == 0 ? sprintf(#buf, "< %.0f dB", b1) :
-  layer == 1 ? sprintf(#buf, "%.0f to %.0f dB", b1, b2) :
-  layer == 2 ? sprintf(#buf, "%.0f to %.0f dB", b2, b3) :
-               sprintf(#buf, "> %.0f dB", b3);
+  slider13 == 0 ? strcpy(#buf, "all hits") :
+  layer == 0 ? strcpy(#buf, "vel 1-40") :
+  layer == 1 ? strcpy(#buf, "vel 41-89") :
+  layer == 2 ? strcpy(#buf, "vel 90-126") :
+               strcpy(#buf, "vel 127");
   gfx_x = pad + 8; gfx_y = y0 + 38;
   gfx_drawstr(#buf);
 
@@ -915,7 +975,7 @@ loop(LAYERS, (
 
 // ---- slot grid ----
 i = 0;
-loop(SLOTS, (
+loop(vis, (
   layer = (i/SPL) | 0;
   col = i - layer*SPL;
   x = gx + col*(cw+gap);
