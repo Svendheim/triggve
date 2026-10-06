@@ -53,7 +53,7 @@ All twelve controls are drawn in the plugin's own window, two per row (the two d
 The plugin follows the input with an **envelope**: it rises quickly (Attack) when a hit arrives and falls slowly (Release) when it ends. A trigger fires when the envelope crosses the **Threshold**. After firing, the detector is "disarmed" and only re-arms once the envelope falls below *Threshold minus Hysteresis*; the **Holdoff** also enforces a minimum gap between triggers. Release and Hysteresis together control how fast the next hit can be detected.
 
 ### How velocity layers work
-A hit's **peak level** is measured over a short (~8 ms) window, converted to dBFS, and compared against three boundaries derived from the Threshold: `Threshold + slider 10`, `Threshold + slider 11`, and `Threshold + slider 12`. The result picks a layer:
+A hit's **peak level** is measured over a short (~2 ms) window, converted to dBFS, and compared against three boundaries derived from the Threshold: `Threshold + slider 10`, `Threshold + slider 11`, and `Threshold + slider 12`. The result picks a layer:
 
 - **Ghost** — below the Ghost/Low boundary.
 - **Low** — between the Ghost/Low and Low/Medium boundaries.
@@ -62,7 +62,7 @@ A hit's **peak level** is measured over a short (~8 ms) window, converted to dBF
 
 The plugin then chooses a sample **within that layer** using the Sample Selection mode. If the chosen layer has no samples loaded, it falls back to the nearest *louder* loaded layer, then the nearest softer one, so a hit is never dropped. Each layer keeps its own round-robin/random state, and up to 8 samples per layer give strong protection against machine-gunning.
 
-> **Known trade-off:** that ~8 ms measurement window is also the extra latency added to every triggered sample. It is currently fixed in code (`vel_window` in `Triggve.jsfx`) and may become shorter, adjustable, or adaptive later.
+> **Known trade-off:** that measurement window is also the extra latency added to every triggered sample, which you hear as a flam against the dry input when **Mix** is below 1. It is currently fixed at ~2 ms in code (`vel_window` in `Triggve.jsfx`) — short enough to be inaudible, long enough to catch the transient peak. Making it adjustable or adaptive is a beta3 candidate.
 
 ### What each slider does
 
@@ -104,7 +104,7 @@ These are offsets from the **Threshold**, so the whole scheme moves with your se
 input ──► detector (Attack/Release/Threshold/Hysteresis/Holdoff) ──► trigger
                                                                       │
                                                                       ▼
-                       velocity window (~8 ms) ──► layer (Ghost/Low/Medium/Hard)
+                       velocity window (~2 ms) ──► layer (Ghost/Low/Medium/Hard)
                                                                       │
                                                                       ▼
                  slot pool, within layer (Selection) ──► voice ──► × Output Gain ──► soft-clip
@@ -143,7 +143,7 @@ Triggve is now in **beta**. Versions progress **beta1 → beta2 → … → 1.0*
 
 - [x] **beta1** — First beta: transient detector, 8-slot drag & drop pool, 96-voice playback, Single/Round-robin/Random selection, peak-accurate velocity, Output Gain, wet/dry Mix, soft-clip safety ceiling, click-free transport stop.
 - [x] **beta2** — **Velocity layers**: Ghost / Low / Medium / Hard, up to 8 slots each (32 total), dB-boundary classification from the hit peak, per-layer Single/Round-robin/Random selection, layer-per-row GUI, Dynamic Velocity defaults off.
-- [ ] **beta3** — TBD (candidates: tune or parameterise the fixed ~8 ms velocity window, onset/derivative detection, a separate rimshot/articulation detector, per-slot weighting/enable, longer no-repeat window).
+- [ ] **beta3** — TBD (candidates: make the ~2 ms velocity window adjustable or adaptive, onset/derivative detection, a separate rimshot/articulation detector, per-slot weighting/enable, longer no-repeat window).
 - [ ] **1.0** — Stable release.
 
 ## License

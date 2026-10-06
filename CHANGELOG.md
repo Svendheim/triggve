@@ -12,7 +12,7 @@ and this project uses a beta versioning scheme (`beta1`, `beta2`, … → `1.0`)
 - **32-slot sample pool** (4 layers × up to 8 slots), arranged in a layer-per-row grid.
 - **Layer boundary sliders** (sliders 10–12) defining the dB offsets above Threshold where each layer begins, with fallback to the nearest loaded layer when a layer is empty.
 - **Per-layer selection state** — Single / Round-robin / Random now cycle within the chosen layer, giving up to 8 samples per hit strength.
-- **Deferred velocity measurement** — a short (~8 ms) window captures the true hit peak before the layer and sample are chosen.
+- **Deferred velocity measurement** — a short (~2 ms) window captures the true hit peak before the layer and sample are chosen.
 - **Dynamic Velocity** toggle (off = samples play at their original volume).
 
 ### Changed
@@ -24,7 +24,7 @@ and this project uses a beta versioning scheme (`beta1`, `beta2`, … → `1.0`)
 - Dropped the in-canvas "Triggve" title; REAPER's FX title bar already names the plugin. The status strip moved up and the window is 50 px shorter overall.
 
 ### Notes
-- The velocity-measurement window is fixed at ~8 ms (`vel_window`), which is also the added latency per triggered sample; revisiting this (shorter / adjustable / adaptive) is a beta3 candidate.
+- The velocity-measurement window is ~2 ms (`vel_window`), which is also the added latency per triggered sample. 8 ms audibly flammed against the dry input at Mix < 1; 2 ms is below that threshold. Making it adjustable or adaptive remains a beta3 candidate.
 
 ## [beta1] — 2026-10-05
 
