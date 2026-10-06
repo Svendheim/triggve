@@ -4,22 +4,23 @@
   <img src="triggve.jpg" alt="Triggve logo" width="420">
 </p>
 
-A lightweight, low-latency REAPER JSFX drum replacement and sample triggering plugin for Linux and cross-platform REAPER environments. Current version: **beta1**.
+A lightweight, low-latency REAPER JSFX drum replacement and sample triggering plugin for Linux and cross-platform REAPER environments. Current version: **beta2**.
 
-`Triggve` monitors incoming audio transients on a track, estimates hit velocity from the input peak, and plays a sample from an 8-slot pool. Slots can be filled by drag & drop and are cycled with **Single**, **Round-robin**, or **Random (no immediate repeat)** selection. By default the dry input is muted (**Mix** = 1), so the plugin acts as a full drum replacement.
+`Triggve` monitors incoming audio transients on a track, estimates hit velocity from the input peak, and plays a sample from a 32-slot pool split into **four velocity layers** — **Ghost**, **Low**, **Medium**, and **Hard**. Each layer holds up to 8 samples; a hit is classified into a layer from its peak level, and the sample is cycled within that layer with **Single**, **Round-robin**, or **Random (no immediate repeat)** selection. By default the dry input is muted (**Mix** = 1), so the plugin acts as a full drum replacement.
 
 ## Features
 
 - **Audio Transient Detection**: Real-time envelope follower with configurable attack/release, threshold, hysteresis, and retrigger holdoff.
-- **8-Slot Sample Pool**: Drag & drop WAV files onto slots; per-slot loaded indicator and length / channels / rate readout.
+- **4 Velocity Layers**: Ghost / Low / Medium / Hard, each with up to **8 slots** (32 total). The layer is chosen from the hit's peak level via three configurable dB boundaries above the Threshold.
+- **32-Slot Sample Pool**: Drag & drop WAV files onto slots; per-slot loaded indicator and length / channels / rate readout, arranged in a layer-per-row grid.
 - **Easy Unloading**: Right-click a slot, click its `x`, or press **Clear All**.
 - **Project Persistence**: Loaded file paths are stored with the project via `@serialize` and re-opened on reload.
-- **Selection Modes**:
-  - **Single (slot 1)** — always the first slot.
+- **Selection Modes** (per layer):
+  - **Single** — always the first loaded slot in the layer.
   - **Round-robin** — cycles through loaded slots in order, wrapping and skipping empties.
   - **Random** — uniform pick among loaded slots, never the same as the previous hit.
 - **Polyphonic Playback**: 96 independent voices so sample tails ring out naturally without hard clipping or voice stealing.
-- **Dynamic Velocity Scaling**: Plays each sample at the hit's **peak level** (measured over a short window, not at the threshold crossing), so triggered samples match the source loudness. Can be turned **off** to play every sample at its original volume.
+- **Dynamic Velocity Scaling** (off by default): plays each sample at the hit's **peak level** (measured over a short window, not at the threshold crossing), so triggered samples match the source loudness. Leave it off when your layer samples already carry the right loudness.
 - **Makeup Output Gain**: A ±24 dB output gain to match quiet sources, protected by the soft-clip ceiling.
 - **Wet/Dry Mix**: A linear blend between the dry input and triggered samples (0 = original only, 1 = samples only), so you can dial in exactly how much of the source to keep.
 - **Output Safety & Anti-Click**: A soft-clip ceiling guarantees the output never exceeds 0 dBFS, and a short transport-stop fade prevents pops when stopping mid-sample.
@@ -38,12 +39,25 @@ A lightweight, low-latency REAPER JSFX drum replacement and sample triggering pl
 | 4 | Retrigger Holdoff (ms) | 20 | 1 … 100 | Minimum time between two triggers. |
 | 5 | Hysteresis (dB) | 6 | 0 … 24 | How far the signal must drop before the detector can fire again. |
 | 6 | Mix | 1.0 | 0 … 1 | Blend of dry input vs. triggered samples. |
-| 7 | Dynamic Velocity | On | Off / On | Velocity scaling from hit strength. Off = samples play at their original volume. |
-| 8 | Sample Selection | Random | Single / Round-robin / Random | Which loaded slot plays next. |
+| 7 | Dynamic Velocity | Off | Off / On | Velocity scaling from hit strength. Off = samples play at their original volume. |
+| 8 | Sample Selection | Random | Single / Round-robin / Random | Which loaded slot plays next within the chosen layer. |
 | 9 | Output Gain (dB) | 0 | −24 … +24 | Makeup gain for the triggered samples. |
+| 10 | Ghost / Low boundary (dB) | +3 | 0 … 48 | How far above Threshold still counts as a Ghost hit. |
+| 11 | Low / Medium boundary (dB) | +9 | 0 … 48 | Boundary between Low and Medium hits. |
+| 12 | Medium / Hard boundary (dB) | +15 | 0 … 48 | Boundary between Medium and Hard hits. |
 
 ### How the detector works
 The plugin follows the input with an **envelope**: it rises quickly (Attack) when a hit arrives and falls slowly (Release) when it ends. A trigger fires when the envelope crosses the **Threshold**. After firing, the detector is "disarmed" and only re-arms once the envelope falls below *Threshold minus Hysteresis*; the **Holdoff** also enforces a minimum gap between triggers. Release and Hysteresis together control how fast the next hit can be detected.
+
+### How velocity layers work
+A hit's **peak level** is measured over a short (~8 ms) window, converted to dBFS, and compared against three boundaries derived from the Threshold: `Threshold + slider 10`, `Threshold + slider 11`, and `Threshold + slider 12`. The result picks a layer:
+
+- **Ghost** — below the Ghost/Low boundary.
+- **Low** — between the Ghost/Low and Low/Medium boundaries.
+- **Medium** — between the Low/Medium and Medium/Hard boundaries.
+- **Hard** — at or above the Medium/Hard boundary.
+
+The plugin then chooses a sample **within that layer** using the Sample Selection mode. If the chosen layer has no samples loaded, it falls back to the nearest *louder* loaded layer, then the nearest softer one, so a hit is never dropped. Each layer keeps its own round-robin/random state, and up to 8 samples per layer give strong protection against machine-gunning.
 
 ### What each slider does
 
@@ -65,26 +79,35 @@ After a hit, the envelope must fall *this far below* the Threshold before the de
 **6. Mix** — dry/wet blend.
 `0` = original drum only, `1` = triggered sample only (full replacement), in between mixes both linearly. Default `1`. Use it to keep some of the source or to audition the samples.
 
-**7. Sample Selection** — which loaded slot plays next.
-- **Single (slot 1)** — always slot 1.
-- **Round-robin** — cycles through loaded slots in order (skips empty slots, wraps at the end).
-- **Random** — picks a loaded slot at random, **never the same as the previous hit** (avoids machine-gun repetition).
-If only one slot is loaded, every mode plays that slot. Default **Random**.
+**7. Dynamic Velocity** — optional gain scaling by hit strength.
+**On** plays each sample at the hit's peak level; **Off** plays every sample at its original volume. Default **Off**, which is usually right when your layer samples already have the loudness you want — enabling it on top of velocity layers applies a second, redundant scaling.
 
-**8. Output Gain (dB)** — makeup gain for the samples.
+**8. Sample Selection** — which loaded slot plays next, within the layer that was chosen for the hit.
+- **Single** — always the first loaded slot in the layer.
+- **Round-robin** — cycles through that layer's loaded slots in order (skips empty slots, wraps at the end).
+- **Random** — picks a loaded slot in that layer at random, **never the same as the previous hit** (avoids machine-gun repetition).
+If the layer has only one loaded slot, every mode plays that slot. Default **Random**.
+
+**9. Output Gain (dB)** — makeup gain for the samples.
 Applied to the triggered samples (not the dry input) before the safety ceiling. Use it to match the source loudness if your samples are quieter. Range ±24 dB. The soft-clip prevents the output from exceeding 0 dBFS even when boosted. Default 0 dB.
+
+**10–12. Layer boundaries (dB above Threshold)** — where one velocity layer ends and the next begins.
+These are offsets from the **Threshold**, so the whole scheme moves with your sensitivity setting. **Slider 10** = Ghost/Low, **slider 11** = Low/Medium, **slider 12** = Medium/Hard. Defaults +3 / +9 / +15 dB. A hit below `Threshold + slider 10` is a Ghost; a hit at or above `Threshold + slider 12` is Hard. Tune them by playing soft ghost notes and full hits and watching which layer lights up.
 
 ### Signal flow
 ```
 input ──► detector (Attack/Release/Threshold/Hysteresis/Holdoff) ──► trigger
                                                                       │
                                                                       ▼
-                              slot pool (Selection) ──► voice (peak velocity) ──► × Output Gain ──► soft-clip
-                                                                                                      │
-input (dry) ────────────────────────────────────────────────► Mix ◄──────────────────────────────────┘
-                                                                 │
-                                                                 ▼
-                                                              output
+                       velocity window (~8 ms) ──► layer (Ghost/Low/Medium/Hard)
+                                                                      │
+                                                                      ▼
+                 slot pool, within layer (Selection) ──► voice ──► × Output Gain ──► soft-clip
+                                                                                       │
+input (dry) ─────────────────────────────────────────────────────────────────► Mix ◄───┘
+                                                                                 │
+                                                                                 ▼
+                                                                              output
 ```
 
 
@@ -99,9 +122,10 @@ input (dry) ──────────────────────�
 
 1. Insert `Triggve` on the track carrying the drum audio.
 2. Open the plugin's **floating FX window** (not the TCP-embedded view) so drag & drop works.
-3. Drag a WAV file onto a slot. Repeat for as many slots as you want to use.
-4. Pick a **Sample Selection** mode and adjust Threshold so hits fire reliably without false triggers.
-5. Set **Mix** to `1` for full replacement, or lower it to blend the dry drum back in.
+3. Drag a WAV file onto a slot row. Fill the **Ghost / Low / Medium / Hard** rows with samples for each hit strength — up to 8 per layer.
+4. Adjust **Threshold** so hits fire reliably without false triggers, then tune the three **layer boundaries** (10–12) so soft ghost notes land in Ghost and full hits land in Medium/Hard. The left-hand row highlight and the **Last** readout show which layer fired.
+5. Pick a **Sample Selection** mode (it applies within the chosen layer).
+6. Set **Mix** to `1` for full replacement, or lower it to blend the dry drum back in.
 
 Notes:
 - Samples are resampled to the project sample rate on load and capped at **4 seconds** each.
@@ -113,8 +137,8 @@ Notes:
 Triggve is now in **beta**. Versions progress **beta1 → beta2 → … → 1.0**. Pre-beta development history (v0.1–v0.5) is recorded in [CHANGELOG.md](CHANGELOG.md).
 
 - [x] **beta1** — First beta: transient detector, 8-slot drag & drop pool, 96-voice playback, Single/Round-robin/Random selection, peak-accurate velocity, Output Gain, wet/dry Mix, soft-clip safety ceiling, click-free transport stop.
-- [ ] **beta2** — TBD (candidates: onset/derivative detection, per-slot weighting/enable, longer no-repeat window).
-- [ ] **beta3** — TBD.
+- [x] **beta2** — **Velocity layers**: Ghost / Low / Medium / Hard, up to 8 slots each (32 total), dB-boundary classification from the hit peak, per-layer Single/Round-robin/Random selection, layer-per-row GUI, Dynamic Velocity defaults off.
+- [ ] **beta3** — TBD (candidates: onset/derivative detection, a separate rimshot/articulation detector, per-slot weighting/enable, longer no-repeat window).
 - [ ] **1.0** — Stable release.
 
 ## License

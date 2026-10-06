@@ -1,22 +1,21 @@
-desc:Triggve beta1
+desc:Triggve beta2
 author:Stein
 tags: drums trigger instrument
 in_pin:left input
 in_pin:right input
 out_pin:left output
 out_pin:right output
-options:maxmem=20000000
+options:maxmem=120000000
 
 // ---------------------------------------------------------------------------
-// Triggve beta1 - a REAPER JSFX audio-to-sample drum trigger.
+// Triggve beta2 - a REAPER JSFX audio-to-sample drum trigger.
 // A REAPER JSFX audio-to-sample drum trigger.
 //   * Transient detector: threshold, attack, release, holdoff, hysteresis
-//   * 8-slot sample pool with drag & drop loading and easy unload
-//   * Per-slot length / channels / sample-rate readout
-//   * Slots persist in the project via @serialize
-//   * 96-voice polyphonic playback
-//   * Peak-accurate velocity scaling
-//   * Selection modes: Single (slot 1) / Round-robin / Random (no repeat)
+//   * 4 velocity layers (Ghost / Low / Medium / Hard), 8 slots each (32 total)
+//   * Velocity layer chosen from the hit's peak, measured over a short window
+//   * Per-layer selection: Single / Round-robin / Random (no immediate repeat)
+//   * Drag & drop loading, per-slot readout, easy unload, project persistence
+//   * 96-voice polyphonic playback, peak-accurate optional velocity scaling
 //   * Output Gain, wet/dry Mix, soft-clip safety ceiling, click-free stop
 // ---------------------------------------------------------------------------
 
@@ -26,9 +25,12 @@ slider3:5<1,45,1>Envelope Release (ms)
 slider4:20<1,100,1>Retrigger Holdoff (ms)
 slider5:6<0,24,1>Hysteresis (dB)
 slider6:1<0,1,0.01>Mix
-slider7:1<0,1,1{Dynamic Velocity: Off,Dynamic Velocity: On}>Dynamic Velocity
-slider8:2<0,2,1{Single (slot 1),Round-robin,Random}>Sample Selection
+slider7:0<0,1,1{Dynamic Velocity: Off,Dynamic Velocity: On}>Dynamic Velocity
+slider8:2<0,2,1{Single (first slot),Round-robin,Random}>Sample Selection
 slider9:0<-24,24,0.1>Output Gain (dB)
+slider10:3<0,48,1>Ghost / Low boundary (dB above threshold)
+slider11:9<0,48,1>Low / Medium boundary (dB above threshold)
+slider12:15<0,48,1>Medium / Hard boundary (dB above threshold)
 
 @init
 
@@ -39,7 +41,9 @@ slider9:0<-24,24,0.1>Output Gain (dB)
 // Compute the memory layout. Safe to call from @init or @serialize because
 // @serialize may run before @init on project load.
 function setup_geometry() (
-  SLOTS = 8;
+  SLOTS = 32;
+  LAYERS = 4;
+  SPL = 8;                                      // slots per layer
   MAXLEN_SEC = 4;
   SLOT_STRIDE = (MAXLEN_SEC * srate * 2) | 0;   // stereo frames reserved per slot
   AUDIO_BASE = 0;
@@ -51,11 +55,11 @@ function setup_geometry() (
   s_nch  = META_BASE + SLOTS*2;    // 1 or 2
   s_rate = META_BASE + SLOTS*3;    // sample rate the slot was resampled to
   s_err  = META_BASE + SLOTS*4;    // load failure flag
+  last_pick = META_BASE + SLOTS*5; // per-layer previous pick (relative index)
 
   // ---- voice pool ----
   VOICES = 96;
-  PLAY_SLOT = 0;                   // slot 1 (top-left) = "Single" selection mode
-  V_BASE = META_BASE + SLOTS*5;
+  V_BASE = META_BASE + SLOTS*5 + LAYERS;
   v_active = V_BASE;
   v_pos    = V_BASE + VOICES;      // playhead, in frames
   v_gain   = V_BASE + VOICES*2;
@@ -84,9 +88,17 @@ trigger_count = 0;
 led = 0;
 pk = 0;                  // peak follower of the current hit (for velocity)
 
+// ---- velocity-layer state -----------------------------------------------
+hit_peak = 0;            // peak of the hit being measured
+vel_pending = 0;         // 1 while a hit's velocity window is running
+vel_count = 0;           // samples left in the velocity window
+last_layer = 0;          // layer chosen for the most recent hit
+
 // ---- sample-selection state --------------------------------------------
 last_slot = -1;      // previous slot chosen by a trigger (-1 = none yet)
-chosen_slot = -1;    // result of select_slot()
+chosen_slot = -1;    // result of the selection helpers
+li = 0;
+loop(LAYERS, ( last_pick[li] = -1; li += 1; ));
 
 // Derived values (recomputed whenever sliders change)
 thr = 10 ^ (slider1 / 20);
@@ -94,11 +106,17 @@ thr_low = thr * 10 ^ (-slider5 / 20);
 attack_coef = exp(-1 / (srate * slider2 / 1000));
 release_coef = exp(-1 / (srate * slider3 / 1000));
 holdoff_samples = slider4 / 1000 * srate;
-led_coef = exp(-1 / (srate * 0.2));     // ~200 ms LED hold
+led_coef = exp(-1 / (srate * 0.2));       // ~200 ms LED hold
 pk_coef = exp(-1 / (srate * 0.15));       // ~150 ms peak-follower decay
 peak_window = (srate * 0.025) | 0;        // ~25 ms per-voice peak tracking
+vel_window = (srate * 0.008) | 0;         // ~8 ms hit velocity measurement
 velocity_on = slider7;                    // dynamic velocity scaling (0 = off)
 out_gain = 10 ^ (slider9 / 20);
+
+// Velocity-layer boundaries, in dBFS (threshold dB + offset in dB)
+b1 = slider1 + slider10;                  // Ghost / Low
+b2 = slider1 + slider11;                  // Low / Medium
+b3 = slider1 + slider12;                  // Medium / Hard
 
 // Transport fade: ramp the voice output up/down over ~5 ms on stop/play so
 // the host's hard stop becomes a smooth fade instead of a click.
@@ -109,14 +127,38 @@ stop_fading = 0;
 
 // Store a loaded file's path into the matching named string slot.
 function set_path(idx, path) (
-  idx == 0 ? strcpy(#path0, path) :
-  idx == 1 ? strcpy(#path1, path) :
-  idx == 2 ? strcpy(#path2, path) :
-  idx == 3 ? strcpy(#path3, path) :
-  idx == 4 ? strcpy(#path4, path) :
-  idx == 5 ? strcpy(#path5, path) :
-  idx == 6 ? strcpy(#path6, path) :
-             strcpy(#path7, path);
+  idx == 0  ? strcpy(#path0,  path) :
+  idx == 1  ? strcpy(#path1,  path) :
+  idx == 2  ? strcpy(#path2,  path) :
+  idx == 3  ? strcpy(#path3,  path) :
+  idx == 4  ? strcpy(#path4,  path) :
+  idx == 5  ? strcpy(#path5,  path) :
+  idx == 6  ? strcpy(#path6,  path) :
+  idx == 7  ? strcpy(#path7,  path) :
+  idx == 8  ? strcpy(#path8,  path) :
+  idx == 9  ? strcpy(#path9,  path) :
+  idx == 10 ? strcpy(#path10, path) :
+  idx == 11 ? strcpy(#path11, path) :
+  idx == 12 ? strcpy(#path12, path) :
+  idx == 13 ? strcpy(#path13, path) :
+  idx == 14 ? strcpy(#path14, path) :
+  idx == 15 ? strcpy(#path15, path) :
+  idx == 16 ? strcpy(#path16, path) :
+  idx == 17 ? strcpy(#path17, path) :
+  idx == 18 ? strcpy(#path18, path) :
+  idx == 19 ? strcpy(#path19, path) :
+  idx == 20 ? strcpy(#path20, path) :
+  idx == 21 ? strcpy(#path21, path) :
+  idx == 22 ? strcpy(#path22, path) :
+  idx == 23 ? strcpy(#path23, path) :
+  idx == 24 ? strcpy(#path24, path) :
+  idx == 25 ? strcpy(#path25, path) :
+  idx == 26 ? strcpy(#path26, path) :
+  idx == 27 ? strcpy(#path27, path) :
+  idx == 28 ? strcpy(#path28, path) :
+  idx == 29 ? strcpy(#path29, path) :
+  idx == 30 ? strcpy(#path30, path) :
+              strcpy(#path31, path);
 );
 
 // Clear one slot (metadata + stored path).
@@ -126,14 +168,38 @@ function clear_slot(idx) (
   s_nch[idx] = 0;
   s_rate[idx] = 0;
   s_err[idx] = 0;
-  idx == 0 ? strcpy(#path0, "") :
-  idx == 1 ? strcpy(#path1, "") :
-  idx == 2 ? strcpy(#path2, "") :
-  idx == 3 ? strcpy(#path3, "") :
-  idx == 4 ? strcpy(#path4, "") :
-  idx == 5 ? strcpy(#path5, "") :
-  idx == 6 ? strcpy(#path6, "") :
-             strcpy(#path7, "");
+  idx == 0  ? strcpy(#path0,  "") :
+  idx == 1  ? strcpy(#path1,  "") :
+  idx == 2  ? strcpy(#path2,  "") :
+  idx == 3  ? strcpy(#path3,  "") :
+  idx == 4  ? strcpy(#path4,  "") :
+  idx == 5  ? strcpy(#path5,  "") :
+  idx == 6  ? strcpy(#path6,  "") :
+  idx == 7  ? strcpy(#path7,  "") :
+  idx == 8  ? strcpy(#path8,  "") :
+  idx == 9  ? strcpy(#path9,  "") :
+  idx == 10 ? strcpy(#path10, "") :
+  idx == 11 ? strcpy(#path11, "") :
+  idx == 12 ? strcpy(#path12, "") :
+  idx == 13 ? strcpy(#path13, "") :
+  idx == 14 ? strcpy(#path14, "") :
+  idx == 15 ? strcpy(#path15, "") :
+  idx == 16 ? strcpy(#path16, "") :
+  idx == 17 ? strcpy(#path17, "") :
+  idx == 18 ? strcpy(#path18, "") :
+  idx == 19 ? strcpy(#path19, "") :
+  idx == 20 ? strcpy(#path20, "") :
+  idx == 21 ? strcpy(#path21, "") :
+  idx == 22 ? strcpy(#path22, "") :
+  idx == 23 ? strcpy(#path23, "") :
+  idx == 24 ? strcpy(#path24, "") :
+  idx == 25 ? strcpy(#path25, "") :
+  idx == 26 ? strcpy(#path26, "") :
+  idx == 27 ? strcpy(#path27, "") :
+  idx == 28 ? strcpy(#path28, "") :
+  idx == 29 ? strcpy(#path29, "") :
+  idx == 30 ? strcpy(#path30, "") :
+              strcpy(#path31, "");
 );
 
 // Clear every slot.
@@ -149,62 +215,126 @@ function first_empty() local(i) (
   i;
 );
 
-// Choose the next slot according to slider8 (selection mode).
+// Choose the next slot within one layer (layer 0..LAYERS-1).
 // Writes the result to the global chosen_slot (-1 = nothing to play).
-//   slider8 0 = Single (slot 1), 1 = Round-robin, 2 = Random (no repeat)
-function select_slot() local(i, j, n, k, r, c) (
+//   slider8 0 = Single (first loaded), 1 = Round-robin, 2 = Random (no repeat)
+function select_in_layer(layer) local(base, n, i, j, k, r, c, last) (
+  base = layer * SPL;
   chosen_slot = -1;
 
-  // count loaded slots
+  // count loaded slots in this layer
   n = 0; i = 0;
-  loop(SLOTS, ( s_ok[i] ? (n += 1); i += 1; ));
+  loop(SPL, ( s_ok[base+i] ? (n += 1); i += 1; ));
 
   n == 0 ? (
     chosen_slot = -1;
   ) : n == 1 ? (
     // exactly one loaded slot: always use it
     i = 0;
-    while (i < SLOTS && !s_ok[i]) ( i += 1; );
-    chosen_slot = i;
+    while (i < SPL && !s_ok[base+i]) ( i += 1; );
+    chosen_slot = base + i;
   ) : slider8 == 0 ? (
-    // Single: slot 1 (top-left) if loaded
-    chosen_slot = s_ok[0] ? 0 : -1;
+    // Single: first loaded slot in the layer
+    i = 0;
+    while (i < SPL && !s_ok[base+i]) ( i += 1; );
+    chosen_slot = (i < SPL) ? (base + i) : -1;
   ) : slider8 == 1 ? (
-    // Round-robin: first loaded slot strictly after last_slot, wrapping
+    // Round-robin: first loaded slot strictly after the last pick, wrapping
+    last = last_pick[layer];
     j = 1;
-    loop(SLOTS, (
-      i = last_slot + j;
-      i >= SLOTS ? ( i -= SLOTS; );
-      (chosen_slot < 0 && s_ok[i]) ? ( chosen_slot = i; );
+    loop(SPL, (
+      i = last + j;
+      i >= SPL ? ( i -= SPL; );
+      (chosen_slot < 0 && s_ok[base+i]) ? ( chosen_slot = base + i; );
       j += 1;
     ));
   ) : (
-    // Random: uniform pick among loaded slots, excluding last_slot
+    // Random: uniform pick among loaded slots, excluding the last pick
+    last = last_pick[layer];
     k = 0; i = 0;
-    loop(SLOTS, ( (s_ok[i] && i != last_slot) ? (k += 1); i += 1; ));
+    loop(SPL, ( (s_ok[base+i] && i != last) ? (k += 1); i += 1; ));
     r = (rand(k)) | 0;
     r >= k ? ( r = k - 1; );
     c = 0; i = 0;
-    loop(SLOTS, (
-      (s_ok[i] && i != last_slot) ? (
+    loop(SPL, (
+      (s_ok[base+i] && i != last) ? (
         c += 1;
-        (chosen_slot < 0 && c == r + 1) ? ( chosen_slot = i; );
+        (chosen_slot < 0 && c == r + 1) ? ( chosen_slot = base + i; );
       );
       i += 1;
     ));
+    // guard: if every loaded slot equals the last pick, just take the first
+    chosen_slot < 0 ? (
+      i = 0;
+      while (i < SPL && !s_ok[base+i]) ( i += 1; );
+      chosen_slot = (i < SPL) ? (base + i) : -1;
+    );
+  );
+
+  chosen_slot >= 0 ? ( last_pick[layer] = chosen_slot - base; );
+);
+
+// Pick a slot for the requested layer; if that layer is empty, fall back to
+// the nearest *louder* loaded layer, then the nearest softer one.
+function select_layer(target) local(l) (
+  select_in_layer(target);
+  chosen_slot < 0 ? (
+    l = target + 1;
+    while (l < LAYERS && chosen_slot < 0) ( select_in_layer(l); l += 1; );
+  );
+  chosen_slot < 0 ? (
+    l = target - 1;
+    while (l >= 0 && chosen_slot < 0) ( select_in_layer(l); l -= 1; );
   );
 );
 
-// Put a short display name (basename, max 22 chars) of slot idx into #disp.
+// Map a hit level (dBFS) to a layer index 0..3 using the boundary offsets.
+function layer_of(vdb) (
+  (vdb < b1) ? 0 : (vdb < b2) ? 1 : (vdb < b3) ? 2 : 3;
+);
+
+// Short display name of a layer, into #layname.
+function layer_name(layer) (
+  layer == 0 ? strcpy(#layname, "Ghost")  :
+  layer == 1 ? strcpy(#layname, "Low")    :
+  layer == 2 ? strcpy(#layname, "Medium") :
+               strcpy(#layname, "Hard");
+);
+
+// Put a short display name (basename, max 14 chars) of slot idx into #disp.
 function slot_disp(idx) local(len, k, c, done, p) (
-  idx == 0 ? strcpy(#disp, #path0) :
-  idx == 1 ? strcpy(#disp, #path1) :
-  idx == 2 ? strcpy(#disp, #path2) :
-  idx == 3 ? strcpy(#disp, #path3) :
-  idx == 4 ? strcpy(#disp, #path4) :
-  idx == 5 ? strcpy(#disp, #path5) :
-  idx == 6 ? strcpy(#disp, #path6) :
-             strcpy(#disp, #path7);
+  idx == 0  ? strcpy(#disp, #path0)  :
+  idx == 1  ? strcpy(#disp, #path1)  :
+  idx == 2  ? strcpy(#disp, #path2)  :
+  idx == 3  ? strcpy(#disp, #path3)  :
+  idx == 4  ? strcpy(#disp, #path4)  :
+  idx == 5  ? strcpy(#disp, #path5)  :
+  idx == 6  ? strcpy(#disp, #path6)  :
+  idx == 7  ? strcpy(#disp, #path7)  :
+  idx == 8  ? strcpy(#disp, #path8)  :
+  idx == 9  ? strcpy(#disp, #path9)  :
+  idx == 10 ? strcpy(#disp, #path10) :
+  idx == 11 ? strcpy(#disp, #path11) :
+  idx == 12 ? strcpy(#disp, #path12) :
+  idx == 13 ? strcpy(#disp, #path13) :
+  idx == 14 ? strcpy(#disp, #path14) :
+  idx == 15 ? strcpy(#disp, #path15) :
+  idx == 16 ? strcpy(#disp, #path16) :
+  idx == 17 ? strcpy(#disp, #path17) :
+  idx == 18 ? strcpy(#disp, #path18) :
+  idx == 19 ? strcpy(#disp, #path19) :
+  idx == 20 ? strcpy(#disp, #path20) :
+  idx == 21 ? strcpy(#disp, #path21) :
+  idx == 22 ? strcpy(#disp, #path22) :
+  idx == 23 ? strcpy(#disp, #path23) :
+  idx == 24 ? strcpy(#disp, #path24) :
+  idx == 25 ? strcpy(#disp, #path25) :
+  idx == 26 ? strcpy(#disp, #path26) :
+  idx == 27 ? strcpy(#disp, #path27) :
+  idx == 28 ? strcpy(#disp, #path28) :
+  idx == 29 ? strcpy(#disp, #path29) :
+  idx == 30 ? strcpy(#disp, #path30) :
+              strcpy(#disp, #path31);
   len = strlen(#disp);
   k = 0; done = 0; p = -1;
   while (k < len && !done) (
@@ -213,11 +343,11 @@ function slot_disp(idx) local(len, k, c, done, p) (
     k += 1;
   );
   p > 0 ? ( strcpy_substr(#tmpname, #disp, p, -1); strcpy(#disp, #tmpname); );
-  strlen(#disp) > 22 ? str_setlen(#disp, 22);
+  strlen(#disp) > 14 ? str_setlen(#disp, 14);
 );
 
 // Load a WAV/OGG file into slot idx. Resamples to the project rate.
-// Must not be called from @sample (does file I/O).
+// Must not be called from @sample (it does file I/O).
 function load_slot(idx, path) local(fh, nch, sr, avail, frames, cap, base) (
   base = AUDIO_BASE + idx*SLOT_STRIDE;
   s_ok[idx] = 0;
@@ -283,12 +413,28 @@ function start_voice(slot) local(i, vfree, oldest) (
   );
   v_active[vfree] = 1;
   v_pos[vfree] = 0;
-  v_gain[vfree] = velocity_on ? trig_vel : 1;
+  v_gain[vfree] = velocity_on ? min(hit_peak, 1) : 1;
   v_slot[vfree] = slot;
-  v_peak[vfree] = pk;              // seed with the peak found so far
+  v_peak[vfree] = hit_peak;        // seed with the measured hit peak
   v_track[vfree] = peak_window;    // keep refining for ~25 ms
   voice_age += 1;
   v_age[vfree] = voice_age;
+);
+
+// End of the velocity window: classify the hit's peak into a layer, pick a
+// slot within it, and start the voice.
+function flush_velocity() local(vdb, lay) (
+  vdb = 20 * log10(max(hit_peak, 1e-9));
+  lay = layer_of(vdb);
+  last_layer = lay;
+  trig_vel = min(hit_peak, 1);
+  select_layer(lay);
+  chosen_slot >= 0 ? (
+    start_voice(chosen_slot);
+    last_slot = chosen_slot;
+    last_layer = (chosen_slot/SPL) | 0;   // reflect any empty-layer fallback
+  );
+  vel_pending = 0;
 );
 
 @slider
@@ -300,9 +446,13 @@ release_coef = exp(-1 / (srate * slider3 / 1000));
 holdoff_samples = slider4 / 1000 * srate;
 pk_coef = exp(-1 / (srate * 0.15));       // ~150 ms peak-follower decay
 peak_window = (srate * 0.025) | 0;        // ~25 ms per-voice peak tracking
+vel_window = (srate * 0.008) | 0;         // ~8 ms hit velocity measurement
 velocity_on = slider7;                    // dynamic velocity scaling (0 = off)
 out_gain = 10 ^ (slider9 / 20);
 fade_coef = exp(-1 / (srate * 0.005));
+b1 = slider1 + slider10;                  // Ghost / Low
+b2 = slider1 + slider11;                  // Low / Medium
+b3 = slider1 + slider12;                  // Medium / Hard
 
 @sample
 
@@ -334,18 +484,23 @@ env < thr_low ? (armed = 1; pk = 0; );
 // --- fire a trigger? ---
 trigger = 0;
 (env >= thr) && armed && (holdoff_counter <= 0) ? (
+  // if a previous hit is still being measured, finalize it first
+  vel_pending ? flush_velocity();
   trigger = 1;
   armed = 0;
   holdoff_counter = holdoff_samples;
   trigger_count += 1;
-  // velocity = the hit's peak seen so far, NOT the threshold-crossing level
-  trig_vel = min(pk, 1);
-  // choose the next sample and start a voice for it
-  select_slot();
-  chosen_slot >= 0 ? (
-    start_voice(chosen_slot);
-    last_slot = chosen_slot;
-  );
+  // start measuring this hit's peak; the layer is chosen when the window ends
+  hit_peak = pk;
+  vel_count = vel_window;
+  vel_pending = 1;
+);
+
+// --- velocity window: refine the peak, then choose the layer and play ---
+(vel_pending && vel_count > 0) ? (
+  hit_peak = max(hit_peak, in);
+  vel_count -= 1;
+  (vel_count <= 0) ? flush_velocity();
 );
 
 // --- hold the LED ---
@@ -426,20 +581,68 @@ file_string(0, #path4);
 file_string(0, #path5);
 file_string(0, #path6);
 file_string(0, #path7);
+file_string(0, #path8);
+file_string(0, #path9);
+file_string(0, #path10);
+file_string(0, #path11);
+file_string(0, #path12);
+file_string(0, #path13);
+file_string(0, #path14);
+file_string(0, #path15);
+file_string(0, #path16);
+file_string(0, #path17);
+file_string(0, #path18);
+file_string(0, #path19);
+file_string(0, #path20);
+file_string(0, #path21);
+file_string(0, #path22);
+file_string(0, #path23);
+file_string(0, #path24);
+file_string(0, #path25);
+file_string(0, #path26);
+file_string(0, #path27);
+file_string(0, #path28);
+file_string(0, #path29);
+file_string(0, #path30);
+file_string(0, #path31);
 
 // On load, re-open any saved samples so slots survive project reloads.
 reading ? (
-  strlen(#path0) > 0 ? load_slot(0, #path0);
-  strlen(#path1) > 0 ? load_slot(1, #path1);
-  strlen(#path2) > 0 ? load_slot(2, #path2);
-  strlen(#path3) > 0 ? load_slot(3, #path3);
-  strlen(#path4) > 0 ? load_slot(4, #path4);
-  strlen(#path5) > 0 ? load_slot(5, #path5);
-  strlen(#path6) > 0 ? load_slot(6, #path6);
-  strlen(#path7) > 0 ? load_slot(7, #path7);
+  strlen(#path0)  > 0 ? load_slot(0,  #path0);
+  strlen(#path1)  > 0 ? load_slot(1,  #path1);
+  strlen(#path2)  > 0 ? load_slot(2,  #path2);
+  strlen(#path3)  > 0 ? load_slot(3,  #path3);
+  strlen(#path4)  > 0 ? load_slot(4,  #path4);
+  strlen(#path5)  > 0 ? load_slot(5,  #path5);
+  strlen(#path6)  > 0 ? load_slot(6,  #path6);
+  strlen(#path7)  > 0 ? load_slot(7,  #path7);
+  strlen(#path8)  > 0 ? load_slot(8,  #path8);
+  strlen(#path9)  > 0 ? load_slot(9,  #path9);
+  strlen(#path10) > 0 ? load_slot(10, #path10);
+  strlen(#path11) > 0 ? load_slot(11, #path11);
+  strlen(#path12) > 0 ? load_slot(12, #path12);
+  strlen(#path13) > 0 ? load_slot(13, #path13);
+  strlen(#path14) > 0 ? load_slot(14, #path14);
+  strlen(#path15) > 0 ? load_slot(15, #path15);
+  strlen(#path16) > 0 ? load_slot(16, #path16);
+  strlen(#path17) > 0 ? load_slot(17, #path17);
+  strlen(#path18) > 0 ? load_slot(18, #path18);
+  strlen(#path19) > 0 ? load_slot(19, #path19);
+  strlen(#path20) > 0 ? load_slot(20, #path20);
+  strlen(#path21) > 0 ? load_slot(21, #path21);
+  strlen(#path22) > 0 ? load_slot(22, #path22);
+  strlen(#path23) > 0 ? load_slot(23, #path23);
+  strlen(#path24) > 0 ? load_slot(24, #path24);
+  strlen(#path25) > 0 ? load_slot(25, #path25);
+  strlen(#path26) > 0 ? load_slot(26, #path26);
+  strlen(#path27) > 0 ? load_slot(27, #path27);
+  strlen(#path28) > 0 ? load_slot(28, #path28);
+  strlen(#path29) > 0 ? load_slot(29, #path29);
+  strlen(#path30) > 0 ? load_slot(30, #path30);
+  strlen(#path31) > 0 ? load_slot(31, #path31);
 );
 
-@gfx 720 460
+@gfx 1000 520
 
 // ---- mouse button edge detection ----
 lmb = mouse_cap & 1;
@@ -454,15 +657,16 @@ gfx_setfont(1, "Arial", 14);
 gfx_set(236/255, 236/255, 236/255, 1);
 gfx_rect(0, 0, gfx_w, gfx_h);
 
-// ---- slot grid layout ----
+// ---- layer grid layout ----
 pad = 10;
 gap = 8;
-cols = 4;
-rows = 2;
-top_h = 108;
-gx = pad;
+gutter = 86;          // width of the layer-label column on the left
+cols = SPL;           // 8 slots across
+rows = LAYERS;        // one row per velocity layer
+top_h = 104;
+gx = pad + gutter;
 gy = top_h + pad;
-gw = gfx_w - pad*2;
+gw = gfx_w - gx - pad;
 gh = gfx_h - gy - pad;
 cw = (gw - (cols-1)*gap) / cols;
 ch = (gh - (rows-1)*gap) / rows;
@@ -472,10 +676,10 @@ hover = -1;
 xbtn = -1;
 i = 0;
 loop(SLOTS, (
-  col = i - (((i/cols) | 0) * cols);
-  row = (i/cols) | 0;
+  layer = (i/SPL) | 0;
+  col = i - layer*SPL;
   x = gx + col*(cw+gap);
-  y = gy + row*(ch+gap);
+  y = gy + layer*(ch+gap);
   inside = (mouse_x >= x && mouse_x < x+cw && mouse_y >= y && mouse_y < y+ch);
   inside ? (hover = i);
   (inside && s_ok[i] && mouse_x >= x+cw-24 && mouse_x < x+cw-4 && mouse_y >= y+4 && mouse_y < y+24)
@@ -511,21 +715,22 @@ rclick && hover >= 0 ? clear_slot(hover);
 gfx_setfont(1, "Arial", 18);
 gfx_set(0.12, 0.12, 0.14, 1);
 gfx_x = 12; gfx_y = 12;
-gfx_drawstr("Triggve beta1");
+gfx_drawstr("Triggve beta2");
 
-gfx_setfont(1, "Arial", 14);
+gfx_setfont(1, "Arial", 13);
 gfx_set(0.35, 0.35, 0.38, 1);
 gfx_x = 12; gfx_y = 42;
-gfx_drawstr("Drop a WAV onto a slot. Right-click or click x to unload.");
+gfx_drawstr("Drop WAVs onto the layer rows. Right-click or click x to unload.");
 
-// selection mode + last slot
-slider8 == 0 ? strcpy(#selname, "Single (slot 1)") :
+// selection mode + last pick
+slider8 == 0 ? strcpy(#selname, "Single") :
 slider8 == 1 ? strcpy(#selname, "Round-robin") :
-                strcpy(#selname, "Random (no repeat)");
+                strcpy(#selname, "Random");
 last_slot < 0 ? strcpy(#lastname, "-") : sprintf(#lastname, "%d", last_slot+1);
-sprintf(#buf, "Mode: %s    Last slot: %s", #selname, #lastname);
+layer_name(last_layer);
+sprintf(#buf, "Mode: %s    Last: %s, slot %s", #selname, #layname, #lastname);
 gfx_set(0.05, 0.30, 0.60, 1);
-gfx_x = 12; gfx_y = 66;
+gfx_x = 12; gfx_y = 64;
 gfx_drawstr(#buf);
 
 loaded = 0;
@@ -536,7 +741,7 @@ i = 0;
 loop(VOICES, ( v_active[i] ? (voices_active += 1); i += 1; ));
 
 gfx_set(0.35, 0.35, 0.38, 1);
-gfx_x = 12; gfx_y = 88;
+gfx_x = 12; gfx_y = 86;
 gfx_printf("Slots: %d/%d loaded    Triggers: %d    Voices: %d/%d",
            loaded, SLOTS, trigger_count, voices_active, VOICES);
 
@@ -547,13 +752,43 @@ gfx_set(over_ca ? 0.05 : 0.25, over_ca ? 0.05 : 0.25, over_ca ? 0.07 : 0.28, 1);
 gfx_x = ca_x + 14; gfx_y = ca_y + 5;
 gfx_drawstr("Clear All");
 
+// ---- layer labels (left gutter) ----
+layer = 0;
+loop(LAYERS, (
+  y0 = gy + layer*(ch+gap);
+  active = (layer == last_layer);
+
+  // tint panels, highlight the last-fired layer
+  gfx_set(active ? 0.98 : 0.90, active ? 0.93 : 0.90, active ? 0.80 : 0.92, 1);
+  gfx_rect(pad, y0, gutter-4, ch);
+
+  // layer name
+  layer_name(layer);
+  gfx_setfont(1, "Arial", 15);
+  gfx_set(active ? 0.75 : 0.25, active ? 0.35 : 0.25, active ? 0.05 : 0.30, 1);
+  gfx_x = pad + 8; gfx_y = y0 + 16;
+  gfx_drawstr(#layname);
+
+  // velocity range in dBFS
+  gfx_setfont(1, "Arial", 11);
+  gfx_set(0.40, 0.40, 0.45, 1);
+  layer == 0 ? sprintf(#buf, "< %.0f dB", b1) :
+  layer == 1 ? sprintf(#buf, "%.0f to %.0f dB", b1, b2) :
+  layer == 2 ? sprintf(#buf, "%.0f to %.0f dB", b2, b3) :
+               sprintf(#buf, "> %.0f dB", b3);
+  gfx_x = pad + 8; gfx_y = y0 + 38;
+  gfx_drawstr(#buf);
+
+  layer += 1;
+));
+
 // ---- slot grid ----
 i = 0;
 loop(SLOTS, (
-  col = i - (((i/cols) | 0) * cols);
-  row = (i/cols) | 0;
+  layer = (i/SPL) | 0;
+  col = i - layer*SPL;
   x = gx + col*(cw+gap);
-  y = gy + row*(ch+gap);
+  y = gy + layer*(ch+gap);
 
   // background tint
   s_ok[i] ? gfx_set(0.82, 0.92, 0.84, 1) :
@@ -568,22 +803,18 @@ loop(SLOTS, (
   gfx_rect(x, y, 1, ch);
   gfx_rect(x+cw-1, y, 1, ch);
 
-  // slot number + marker (larger font for readability)
-  gfx_setfont(1, "Arial", 16);
+  // slot number + marker
+  gfx_setfont(1, "Arial", 13);
   gfx_set(0.30, 0.32, 0.36, 1);
   gfx_x = x + 8; gfx_y = y + 6;
   gfx_printf("%d", i+1);
 
-  // mark the active slot: PLAY in Single mode, LAST for the most recent pick
   #marker = "";
-  slider8 == 0 ? (
-    (i == 0 && s_ok[0]) ? ( #marker = "PLAY"; );
-  ) : (
-    (i == last_slot) ? ( #marker = "LAST"; );
-  );
+  (i == last_slot) ? ( #marker = "LAST"; );
   strlen(#marker) ? (
+    gfx_setfont(1, "Arial", 11);
     gfx_set(0.80, 0.50, 0.05, 1);
-    gfx_x = x + 32; gfx_y = y + 6;
+    gfx_x = x + 30; gfx_y = y + 8;
     gfx_drawstr(#marker);
   );
 
@@ -594,27 +825,31 @@ loop(SLOTS, (
     // x (unload) button
     gfx_set(0.82, 0.82, 0.85, 1);
     gfx_rect(x+cw-24, y+4, 20, 20);
+    gfx_setfont(1, "Arial", 12);
     gfx_set(0.25, 0.25, 0.30, 1);
     gfx_x = x+cw-18; gfx_y = y+6;
     gfx_drawstr("x");
     // file name
     slot_disp(i);
+    gfx_setfont(1, "Arial", 11);
     gfx_set(0.10, 0.10, 0.12, 1);
     gfx_x = x+8; gfx_y = y+34;
     gfx_drawstr(#disp);
     // details
     gfx_set(0.20, 0.42, 0.34, 1);
-    gfx_x = x+8; gfx_y = y+60;
-    gfx_printf("%.2fs  %dch  %dHz", s_len[i]/s_rate[i], s_nch[i], s_rate[i]);
+    gfx_x = x+8; gfx_y = y+58;
+    gfx_printf("%.2fs %dch %.0fkHz", s_len[i]/s_rate[i], s_nch[i], s_rate[i]/1000);
   ) : (
     s_err[i] ? (
+      gfx_setfont(1, "Arial", 11);
       gfx_set(0.65, 0.10, 0.10, 1);
       gfx_x = x+8; gfx_y = y+34;
       gfx_drawstr("load error");
     ) : (
+      gfx_setfont(1, "Arial", 11);
       gfx_set(0.50, 0.52, 0.55, 1);
       gfx_x = x+8; gfx_y = y+34;
-      gfx_drawstr("drop sample here");
+      gfx_drawstr("drop WAV here");
     );
   );
 
