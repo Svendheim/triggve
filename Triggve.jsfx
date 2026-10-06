@@ -424,7 +424,7 @@ function start_voice(slot) local(i, vfree, oldest) (
 // End of the velocity window: classify the hit's peak into a layer, pick a
 // slot within it, and start the voice.
 function flush_velocity() local(vdb, lay) (
-  vdb = 20 * log10(max(hit_peak, 1e-9));
+  vdb = 20 * log10(max(hit_peak, 0.000000001));
   lay = layer_of(vdb);
   last_layer = lay;
   trig_vel = min(hit_peak, 1);
