@@ -33,7 +33,7 @@ A lightweight, low-latency REAPER JSFX drum replacement and sample triggering pl
 
 ## Controls
 
-All twelve controls are drawn in the plugin's own window, two per row (the dropdowns sit at the bottom). They are hidden REAPER parameters, so they remain automatable and are stored with the project. Drag a control to set it, or hover it and use the mouse wheel (hold **Shift** for coarser steps).
+All twelve controls are drawn in the plugin's own window, two per row (the dropdowns sit at the bottom). They are hidden REAPER parameters, so they remain automatable and are stored with the project. The panel is **source-aware**: Audio shows the detector faders, MIDI shows the MIDI controls, and only the controls that actually do something for the current **Trigger Source** are displayed. Hidden controls keep their values and stay automatable. Drag a control to set it, or hover it and use the mouse wheel (hold **Shift** for coarser steps).
 
 | # | Control | Default | Range | One-line summary |
 |---|---------|---------|-------|------------------|

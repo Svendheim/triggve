@@ -802,56 +802,82 @@ pitch = 30;
 ry = 40;
 ui_dirty = 0;
 
-strcpy(#lbl, "Threshold (dB)");
-slider1 = fader(1, slider1, -60, 0, 0.1, 1, 1, cx1, ry, colw, rowh);
-strcpy(#lbl, "Envelope Attack (ms)");
-slider2 = fader(2, slider2, 0.1, 50, 0.1, 1, 1, cx2, ry, colw, rowh);
-ry += pitch;
+// Source-aware panel: the detector faders only appear for Audio, the MIDI
+// controls only for MIDI. Hidden controls keep their values (and stay
+// automatable); switching source brings them straight back.
+slider13 == 0 ? (
+  strcpy(#lbl, "Threshold (dB)");
+  slider1 = fader(1, slider1, -60, 0, 0.1, 1, 1, cx1, ry, colw, rowh);
+  strcpy(#lbl, "Envelope Attack (ms)");
+  slider2 = fader(2, slider2, 0.1, 50, 0.1, 1, 1, cx2, ry, colw, rowh);
+  ry += pitch;
 
-strcpy(#lbl, "Envelope Release (ms)");
-slider3 = fader(3, slider3, 1, 45, 1, 0, 1, cx1, ry, colw, rowh);
-strcpy(#lbl, "Retrigger Holdoff (ms)");
-slider4 = fader(4, slider4, 1, 100, 1, 0, 1, cx2, ry, colw, rowh);
-ry += pitch;
+  strcpy(#lbl, "Envelope Release (ms)");
+  slider3 = fader(3, slider3, 1, 45, 1, 0, 1, cx1, ry, colw, rowh);
+  strcpy(#lbl, "Retrigger Holdoff (ms)");
+  slider4 = fader(4, slider4, 1, 100, 1, 0, 1, cx2, ry, colw, rowh);
+  ry += pitch;
 
-strcpy(#lbl, "Hysteresis (dB)");
-slider5 = fader(5, slider5, 0, 24, 1, 0, 1, cx1, ry, colw, rowh);
-strcpy(#lbl, "Mix");
-slider6 = fader(6, slider6, 0, 1, 0.01, 2, 1, cx2, ry, colw, rowh);
-ry += pitch;
+  strcpy(#lbl, "Hysteresis (dB)");
+  slider5 = fader(5, slider5, 0, 24, 1, 0, 1, cx1, ry, colw, rowh);
+  strcpy(#lbl, "Mix");
+  slider6 = fader(6, slider6, 0, 1, 0.01, 2, 1, cx2, ry, colw, rowh);
+  ry += pitch;
 
-strcpy(#lbl, "Output Gain (dB)");
-slider9 = fader(9, slider9, -24, 24, 0.1, 1, 1, cx1, ry, colw, rowh);
+  strcpy(#lbl, "Output Gain (dB)");
+  slider9 = fader(9, slider9, -24, 24, 0.1, 1, 1, cx1, ry, colw, rowh);
 
-strcpy(#lbl, "Dynamic Velocity");
-slider7 ? strcpy(#lbl2, "On") : strcpy(#lbl2, "Off");
-strcpy(#mopts, "Off|On");
-slider7 = menu_btn(7, slider7, cx2, ry, colw, rowh);
-ry += pitch + 10;
+  strcpy(#lbl, "Dynamic Velocity");
+  slider7 ? strcpy(#lbl2, "On") : strcpy(#lbl2, "Off");
+  strcpy(#mopts, "Off|On");
+  slider7 = menu_btn(7, slider7, cx2, ry, colw, rowh);
+  ry += pitch + 10;
 
-// dropdowns, kept together at the bottom of the panel
-strcpy(#lbl, "Sample Selection");
-slider8 == 0 ? strcpy(#lbl2, "Single (first slot)") :
-slider8 == 1 ? strcpy(#lbl2, "Round-robin") :
-                strcpy(#lbl2, "Random");
-strcpy(#mopts, "Single (first slot)|Round-robin|Random");
-slider8 = menu_btn(8, slider8, cx1, ry, colw, rowh);
+  // dropdowns, kept together at the bottom of the panel
+  strcpy(#lbl, "Sample Selection");
+  slider8 == 0 ? strcpy(#lbl2, "Single (first slot)") :
+  slider8 == 1 ? strcpy(#lbl2, "Round-robin") :
+                  strcpy(#lbl2, "Random");
+  strcpy(#mopts, "Single (first slot)|Round-robin|Random");
+  slider8 = menu_btn(8, slider8, cx1, ry, colw, rowh);
 
-strcpy(#lbl, "Trigger Source");
-slider13 == 0 ? strcpy(#lbl2, "Audio") : strcpy(#lbl2, "MIDI");
-strcpy(#mopts, "Audio|MIDI");
-slider13 = menu_btn(13, slider13, cx2, ry, colw, rowh);
-ry += pitch;
+  strcpy(#lbl, "Trigger Source");
+  strcpy(#lbl2, "Audio");
+  strcpy(#mopts, "Audio|MIDI");
+  slider13 = menu_btn(13, slider13, cx2, ry, colw, rowh);
+) : (
+  strcpy(#lbl, "Output Gain (dB)");
+  slider9 = fader(9, slider9, -24, 24, 0.1, 1, 1, cx1, ry, colw, rowh);
 
-strcpy(#lbl, "MIDI Channel");
-slider14 == 0 ? strcpy(#lbl2, "All channels") : sprintf(#lbl2, "Channel %d", slider14);
-strcpy(#mopts, "All|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16");
-slider14 = menu_btn(14, slider14, cx1, ry, colw, rowh);
+  strcpy(#lbl, "Dynamic Velocity");
+  slider7 ? strcpy(#lbl2, "On") : strcpy(#lbl2, "Off");
+  strcpy(#mopts, "Off|On");
+  slider7 = menu_btn(7, slider7, cx2, ry, colw, rowh);
+  ry += pitch;
 
-strcpy(#lbl, "MIDI Passthrough");
-slider15 ? strcpy(#lbl2, "On") : strcpy(#lbl2, "Off");
-strcpy(#mopts, "Off|On");
-slider15 = menu_btn(15, slider15, cx2, ry, colw, rowh);
+  strcpy(#lbl, "Sample Selection");
+  slider8 == 0 ? strcpy(#lbl2, "Single (first slot)") :
+  slider8 == 1 ? strcpy(#lbl2, "Round-robin") :
+                  strcpy(#lbl2, "Random");
+  strcpy(#mopts, "Single (first slot)|Round-robin|Random");
+  slider8 = menu_btn(8, slider8, cx1, ry, colw, rowh);
+
+  strcpy(#lbl, "Trigger Source");
+  strcpy(#lbl2, "MIDI");
+  strcpy(#mopts, "Audio|MIDI");
+  slider13 = menu_btn(13, slider13, cx2, ry, colw, rowh);
+  ry += pitch;
+
+  strcpy(#lbl, "MIDI Channel");
+  slider14 == 0 ? strcpy(#lbl2, "All channels") : sprintf(#lbl2, "Channel %d", slider14);
+  strcpy(#mopts, "All|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16");
+  slider14 = menu_btn(14, slider14, cx1, ry, colw, rowh);
+
+  strcpy(#lbl, "MIDI Passthrough");
+  slider15 ? strcpy(#lbl2, "On") : strcpy(#lbl2, "Off");
+  strcpy(#mopts, "Off|On");
+  slider15 = menu_btn(15, slider15, cx2, ry, colw, rowh);
+);
 
 panel_bottom = ry + rowh;
 

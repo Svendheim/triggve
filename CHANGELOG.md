@@ -20,6 +20,7 @@ and this project uses a beta versioning scheme (`beta1`, `beta2`, … → `1.0`)
 - **Velocity layers removed from the audio path.** Hit-strength classification proved unreliable from audio peaks; it lives on exactly where velocity *is* exact — MIDI note velocity.
 - **Dynamic Velocity now defaults to On** (it was Off in beta2, because layers carried the loudness). In MIDI mode gain = `velocity / 127`; in Audio mode it is the hit's peak. Zone/bank selection is unaffected by the toggle; set it Off to let your zone samples carry the loudness at original volume.
 - UI rows: the three layer-boundary faders are replaced by **Trigger Source**, **MIDI Channel**, and **MIDI Passthrough** dropdowns.
+- **Source-aware control panel** — the detector faders (Threshold / Attack / Release / Holdoff / Hysteresis) are hidden in MIDI mode, and **MIDI Channel** / **MIDI Passthrough** are hidden in Audio mode, so only live controls are shown. The parameters still exist and keep their values; switching source brings them back.
 
 ### Removed
 - Velocity-layer boundary sliders (10–12) and dBFS boundary classification. Slider numbers 10–12 stay unallocated on purpose, so boundary values saved by beta2 projects cannot shift into the new MIDI controls.
