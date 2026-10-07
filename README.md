@@ -1,5 +1,3 @@
-# Triggve
-
 <p align="center">
   <img src="triggve-logo.jpeg" alt="Triggve logo" width="420">
 </p>
