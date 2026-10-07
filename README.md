@@ -118,10 +118,25 @@ input (dry) ──────────────────────�
 
 ## Installation
 
-1. Open REAPER.
-2. Navigate to **Options** > **Show REAPER resource path in explorer/finder**.
-3. Copy `Triggve.jsfx` into your `Effects/` directory (or a custom subfolder like `Effects/DrumTools/`).
-4. In REAPER's FX browser, press `F5` to rescan, then search for **Triggve**.
+### Linux
+
+```bash
+git clone https://github.com/Svendheim/triggve.git
+mkdir -p ~/.config/REAPER/Effects/Triggve
+cp triggve/Triggve.jsfx ~/.config/REAPER/Effects/Triggve/
+```
+
+To update to a newer release later:
+
+```bash
+cd triggve && git pull && cp Triggve.jsfx ~/.config/REAPER/Effects/Triggve/
+```
+
+### Manual (any platform)
+
+Copy `Triggve.jsfx` into your REAPER resource path's `Effects/` folder — find it via **Options → Show REAPER resource path**. Portable installs keep it next to the REAPER binary; on macOS it's `~/Library/Application Support/REAPER/Effects`.
+
+Then open REAPER, press `F5` in the FX browser to rescan, and search for **Triggve**.
 
 ## Usage
 
