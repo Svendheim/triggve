@@ -1071,9 +1071,9 @@ gfx_drawstr("Clear All");
 // ---- version label, right-aligned just left of the Clear All button ----
 // Keep this string in sync with the version in the file header comment.
 gfx_set(0.30, 0.32, 0.36, 1);
-gfx_measurestr("1.0", ver_w, ver_h);
+gfx_measurestr("v1.0", ver_w, ver_h);
 gfx_x = ca_x - 8 - ver_w; gfx_y = ca_y + 5;
-gfx_printf("1.0");
+gfx_printf("v1.0");
 
 // ---- zone labels (left gutter) ----
 layer = 0;
