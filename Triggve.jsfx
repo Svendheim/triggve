@@ -16,7 +16,7 @@ options:maxmem=120000000
 //   * Per-zone selection: Single / Round-robin / Random (no immediate repeat)
 //   * Drag & drop loading, per-slot readout, easy unload, project persistence
 //   * 96-voice polyphonic playback, optional dynamic velocity scaling
-//   * Output Gain, wet/dry Mix, soft-clip safety ceiling, click-free stop
+//   * Output Gain, wet/dry Mix, soft-clip ceiling, click-free stop & release
 //   * MIDI passthrough (on/off), sample-accurate note timing
 // ---------------------------------------------------------------------------
 
@@ -73,10 +73,26 @@ function setup_geometry() (
   v_age    = V_BASE + VOICES*4;    // higher = newer, for voice stealing
   v_peak   = V_BASE + VOICES*5;    // per-voice running peak while tracking
   v_track  = V_BASE + VOICES*6;    // samples left to track a voice's peak
+  v_nch    = V_BASE + VOICES*7;    // channel count snapshotted at trigger
+  v_end    = V_BASE + VOICES*8;    // length (frames) snapshotted at trigger
+
+  // ---- tail pool: voices fading out after a steal or an unload (declick) --
+  // A dying voice is moved here so its slot in the main pool frees up at once;
+  // the new hit therefore starts with zero added latency while the old voice
+  // ramps down over ~4 ms instead of being cut hard.
+  TAILS = 32;
+  T_BASE = V_BASE + VOICES*9;
+  t_active = T_BASE;
+  t_pos    = T_BASE + TAILS;
+  t_gain   = T_BASE + TAILS*2;     // gain captured at hand-off
+  t_slot   = T_BASE + TAILS*3;
+  t_nch    = T_BASE + TAILS*4;
+  t_end    = T_BASE + TAILS*5;
+  t_rel    = T_BASE + TAILS*6;     // samples left in the release ramp
 
   // ---- MIDI pending queue (events parsed in @block, fired in @sample) ----
   MAXPEND = 64;
-  P_BASE  = V_BASE + VOICES*7;
+  P_BASE  = T_BASE + TAILS*7;
   p_off   = P_BASE;                // sample offset inside the current block
   p_vel   = P_BASE + MAXPEND;      // note velocity, 1..127
   p_note  = P_BASE + MAXPEND*2;    // note number (for future note mapping)
@@ -93,6 +109,8 @@ ui_dirty = 0;          // set when a custom control changed a slider
 voice_age = 0;
 vi = 0;
 loop(VOICES, ( v_active[vi] = 0; v_track[vi] = 0; vi += 1; ));
+ti = 0;
+loop(TAILS, ( t_active[ti] = 0; ti += 1; ));
 
 // ---- detector state ------------------------------------------------------
 env = 0;
@@ -128,6 +146,7 @@ function update_derived() (
   led_coef = exp(-1 / (srate * 0.2));       // ~200 ms LED hold
   pk_coef = exp(-1 / (srate * 0.15));       // ~150 ms peak-follower decay
   peak_window = (srate * 0.025) | 0;        // ~25 ms per-voice peak tracking
+  rel_len = max((srate * 0.004) | 0, 1);    // ~4 ms voice release (declick)
   velocity_on = slider7;                    // dynamic velocity scaling (0 = off)
   out_gain = 10 ^ (slider9 / 20);
   src_audio = (slider13 == 0);              // trigger source selection
@@ -491,6 +510,40 @@ function softclip(x) local(a) (
   a <= 0.9 ? x : sign(x) * (0.9 + 0.1 * (1 - exp(-(a - 0.9) / 0.1)));
 );
 
+// Hand a voice over to the tail pool so it ramps down over rel_len samples
+// instead of being cut hard (which would click). Used when a slot is unloaded
+// and when the pool is full and a voice has to be stolen. The main-pool slot
+// frees up immediately, so a new hit loses no time. If the tail pool is full,
+// the most attenuated tail is dropped -- near-silent, so no audible pop.
+function release_voice(vv) local(t, free, quietest, amp, quietest_amp) (
+  free = -1;
+  t = 0;
+  while (t < TAILS && free < 0) (
+    !t_active[t] ? ( free = t; );
+    t += 1;
+  );
+  free < 0 ? (
+    quietest = 0;
+    quietest_amp = 1000000000;
+    t = 0;
+    loop(TAILS, (
+      amp = abs(t_gain[t]) * t_rel[t] / rel_len;
+      amp < quietest_amp ? ( quietest_amp = amp; quietest = t; );
+      t += 1;
+    ));
+    free = quietest;
+  );
+
+  t_active[free] = 1;
+  t_pos[free] = v_pos[vv];
+  t_gain[free] = v_gain[vv];
+  t_slot[free] = v_slot[vv];
+  t_nch[free] = v_nch[vv];
+  t_end[free] = v_end[vv];
+  t_rel[free] = rel_len;
+  v_active[vv] = 0;
+);
+
 // Start a voice playing the given slot at the current trigger amplitude
 // (hit_peak). trk = 1 keeps refining the gain from the audio input for
 // ~25 ms (audio triggers); trk = 0 freezes it (MIDI velocity is already exact).
@@ -509,6 +562,7 @@ function start_voice(slot, trk) local(i, vfree, oldest) (
       v_age[i] < v_age[oldest] ? ( oldest = i; );
       i += 1;
     );
+    release_voice(oldest);      // fade the stolen voice out instead of cutting
     vfree = oldest;
   );
   v_active[vfree] = 1;
@@ -517,8 +571,21 @@ function start_voice(slot, trk) local(i, vfree, oldest) (
   v_slot[vfree] = slot;
   v_peak[vfree] = hit_peak;              // seed with the trigger amplitude
   v_track[vfree] = trk ? peak_window : 0;
+  v_nch[vfree] = s_nch[slot];            // snapshot these so a later reload
+  v_end[vfree] = s_len[slot];            // of the slot cannot corrupt the voice
   voice_age += 1;
   v_age[vfree] = voice_age;
+);
+
+// Fade out any voice currently playing the given slot. Used when a slot is
+// re-loaded: without this, a voice that is still playing would suddenly start
+// reading the newly loaded sample data for the rest of its length.
+function release_slot_voices(idx) local(i) (
+  i = 0;
+  loop(VOICES, (
+    (v_active[i] && v_slot[i] == idx) ? ( release_voice(i); );
+    i += 1;
+  ));
 );
 
 // Trigger from a MIDI note-on (queued in @block, fired at its exact sample
@@ -648,28 +715,59 @@ loop(VOICES, (
       v_track[vi] -= 1;
     );
     s_ok[v_slot[vi]] ? (
-      sbase = AUDIO_BASE + v_slot[vi]*SLOT_STRIDE;
-      spos = v_pos[vi] | 0;
-      snch = s_nch[v_slot[vi]];
-      snch == 1 ? (
-        vsmp = sbase[spos];
-        vosl += vsmp * v_gain[vi];
-        vosr += vsmp * v_gain[vi];
-        v_pos[vi] += 1;
+      // v_end was captured at trigger, so reloading the slot cannot shorten
+      // or stretch a voice that is already playing
+      v_pos[vi] < v_end[vi] ? (
+        sbase = AUDIO_BASE + v_slot[vi]*SLOT_STRIDE;
+        spos = v_pos[vi] | 0;
+        v_nch[vi] == 1 ? (
+          vsmp = sbase[spos];
+          vosl += vsmp * v_gain[vi];
+          vosr += vsmp * v_gain[vi];
+          v_pos[vi] += 1;
+        ) : (
+          vsmpL = sbase[spos*2];
+          vsmpR = sbase[spos*2 + 1];
+          vosl += vsmpL * v_gain[vi];
+          vosr += vsmpR * v_gain[vi];
+          v_pos[vi] += 1;
+        );
       ) : (
-        vsmpL = sbase[spos*2];
-        vsmpR = sbase[spos*2 + 1];
-        vosl += vsmpL * v_gain[vi];
-        vosr += vsmpR * v_gain[vi];
-        v_pos[vi] += 1;
+        v_active[vi] = 0;            // sample reached its own end
       );
-      v_pos[vi] >= s_len[v_slot[vi]] ? ( v_active[vi] = 0; );
     ) : (
-      // slot was unloaded mid-voice: stop immediately
-      v_active[vi] = 0;
+      // slot unloaded mid-voice: hand it to the tail pool for a short fade
+      // out instead of cutting it, which would click
+      release_voice(vi);
     );
   );
   vi += 1;
+));
+
+// --- tail voices: stolen/unloaded voices finishing their release ramp ---
+// They read the same slot memory, fading to silence over rel_len samples.
+ti = 0;
+loop(TAILS, (
+  t_active[ti] ? (
+    tgain = t_gain[ti] * t_rel[ti] / rel_len;
+    tbase = AUDIO_BASE + t_slot[ti]*SLOT_STRIDE;
+    tpos = t_pos[ti] | 0;
+    t_nch[ti] == 1 ? (
+      tsmp = tbase[tpos];
+      vosl += tsmp * tgain;
+      vosr += tsmp * tgain;
+      t_pos[ti] += 1;
+    ) : (
+      tsmpL = tbase[tpos*2];
+      tsmpR = tbase[tpos*2 + 1];
+      vosl += tsmpL * tgain;
+      vosr += tsmpR * tgain;
+      t_pos[ti] += 1;
+    );
+    t_rel[ti] -= 1;
+    (t_rel[ti] <= 0 || t_pos[ti] >= t_end[ti]) ? ( t_active[ti] = 0; );
+  );
+  ti += 1;
 ));
 
 // --- transport-stop fade: on the 1 -> 0 transition, ramp voices down ---
@@ -682,10 +780,13 @@ stop_now ? ( stop_fading = 1; );
 play_target = stop_fading ? 0 : 1;
 play_gain = fade_coef * play_gain + (1 - fade_coef) * play_target;
 
-// once fully faded, drop the voices and end the fade so later live hits sound
+// once fully faded, drop the voices (and any tails) and end the fade so later
+// live hits sound
 (stop_fading && play_gain < 0.001) ? (
   vi = 0;
   loop(VOICES, ( v_active[vi] = 0; vi += 1; ));
+  ti = 0;
+  loop(TAILS, ( t_active[ti] = 0; ti += 1; ));
   stop_fading = 0;
 );
 
@@ -928,6 +1029,8 @@ while (gfx_getdropfile(n, #dropfile)) (
   t < 0 ? t = 0;
   // audio mode: the visible bank is the first row, keep drops inside it
   (slider13 == 0 && t >= SPL) ? t = SPL - 1;
+  // retire any voice still playing that slot before its data is overwritten
+  release_slot_voices(t);
   set_path(t, #dropfile);
   load_slot(t, #dropfile);
   n += 1;

@@ -17,12 +17,12 @@ A lightweight, low-latency REAPER JSFX drum replacement and sample triggering pl
   - **Single** — always the first loaded slot in the zone/bank.
   - **Round-robin** — cycles through loaded slots in order, wrapping and skipping empties.
   - **Random** — uniform pick among loaded slots, never the same as the previous hit.
-- **Polyphonic Playback**: 96 independent voices so sample tails ring out naturally without hard clipping or voice stealing.
+- **Polyphonic Playback**: 96 independent voices so sample tails ring out naturally. If the pool ever does fill, the oldest voice is retired through a 32-voice release pool with a short fade — never a hard cut — and the new hit still starts instantly.
 - **Dynamic Velocity Scaling** (on by default): scales the voice gain with hit strength — the hit's input peak in Audio mode (refined over ~25 ms after the trigger), or `velocity / 127` in MIDI mode. Set it **Off** to let your zone samples carry the loudness at original volume; zone/bank selection itself is always active.
 - **MIDI Passthrough**: on by default, it keeps incoming notes flowing downstream (e.g. to a soft synth); turn it Off to let Triggve swallow the note-on/note-off events it consumes. Note-ons on **any** MIDI channel trigger.
 - **Makeup Output Gain**: A ±24 dB output gain to match quiet sources, protected by the soft-clip ceiling.
 - **Wet/Dry Mix**: A linear blend between the dry input and triggered samples (0 = original only, 1 = samples only), so you can dial in exactly how much of the source to keep.
-- **Output Safety & Anti-Click**: A soft-clip ceiling guarantees the output never exceeds 0 dBFS, and a short transport-stop fade prevents pops when stopping mid-sample.
+- **Output Safety & Anti-Click**: A soft-clip ceiling guarantees the output never exceeds 0 dBFS; a short transport-stop fade prevents pops when stopping mid-sample; and voices killed by voice-stealing, a slot unload, or a slot re-load ramp out over ~4 ms instead of being cut.
 - **Compact Custom UI**: All controls are drawn inside the plugin window, two per row, instead of REAPER's full-width slider strip. They stay fully automatable and are saved with the project.
 
 <p align="center">
