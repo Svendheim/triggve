@@ -1,7 +1,7 @@
 # Triggve
 
 <p align="center">
-  <img src="triggve.jpg" alt="Triggve logo" width="420">
+  <img src="triggve-logo.jpeg" alt="Triggve logo" width="420">
 </p>
 
 A lightweight, low-latency REAPER JSFX drum replacement and sample triggering plugin for Linux and cross-platform REAPER environments. Current version: **beta3**.
