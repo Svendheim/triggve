@@ -28,7 +28,7 @@ A lightweight, low-latency REAPER JSFX drum replacement and sample triggering pl
 - **Compact Custom UI**: All controls are drawn inside the plugin window, two per row, instead of REAPER's full-width slider strip. They stay fully automatable and are saved with the project.
 
 <p align="center">
-  <img src="triggve-ui.png" alt="Triggve UI" width="640">
+  <img src="triggve-gui.png" alt="Triggve UI" width="640">
 </p>
 
 ## Controls
