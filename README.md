@@ -6,6 +6,44 @@ A lightweight, low-latency REAPER JSFX drum replacement and sample triggering pl
 
 `Triggve` turns drum hits into samples, triggered by either **audio transients** (an envelope detector with threshold, attack/release, hysteresis, and holdoff) or **MIDI note-ons** (parsed per block, fired at the event's exact sample offset). MIDI velocity picks one of four fixed **velocity zones** — **Low** (1–40), **Medium** (41–89), **Hard** (90–126), **Rimshot** (127); audio uses a single 8-slot bank and fires immediately at the threshold crossing. Each zone/bank holds up to 8 samples, picked with **Single**, **Round-robin**, or **Random (no immediate repeat)** selection. By default the dry input is muted (**Mix** = 1), so the plugin acts as a full drum replacement.
 
+## Installation
+
+### Linux
+
+```bash
+git clone https://github.com/svendheim/triggve.git
+mkdir -p ~/.config/REAPER/Effects/Triggve
+cp triggve/Triggve.jsfx ~/.config/REAPER/Effects/Triggve/
+```
+
+To update to a newer release later:
+
+```bash
+cd triggve && git pull && cp Triggve.jsfx ~/.config/REAPER/Effects/Triggve/
+```
+
+### Manual (any platform)
+
+Copy `Triggve.jsfx` into your REAPER resource path's `Effects/` folder — find it via **Options → Show REAPER resource path**. Portable installs keep it next to the REAPER binary; on macOS it's `~/Library/Application Support/REAPER/Effects`.
+
+Then open REAPER, press `F5` in the FX browser to rescan, and search for **Triggve**.
+
+## Usage
+
+1. Insert `Triggve` on the track carrying the drum audio.
+2. Open the plugin's **floating FX window** (not the TCP-embedded view) so drag & drop works.
+3. Choose the **Trigger Source**:
+   - **MIDI** (default): feed MIDI into that track like into any other FX — a MIDI item on the same track, a live MIDI input monitored on the track, or routed from another track (its routing dialog → *MIDI output → this track*). Note-ons then pick zones by velocity: **1–40 Low, 41–89 Medium, 90–126 Hard, 127 Rimshot** — on any MIDI channel. With **MIDI Passthrough** On (default) the notes continue downstream too — e.g. Triggve and a soft synth can share the same MIDI. Drag up to 8 WAVs into each zone row.
+   - **Audio**: drag WAVs into the single **Hits** bank and adjust **Threshold** so hits fire reliably without false triggers; Attack/Release/Holdoff/Hysteresis shape the retrigger behaviour (see "How the detector works"). The left-hand row highlight and the **Last** readout show what fired.
+4. Pick a **Sample Selection** mode (it applies within each zone/bank).
+5. Set **Mix** to `1` for full replacement, or lower it to blend the dry drum back in.
+
+Notes:
+- Samples are resampled to the project sample rate on load and capped at **4 seconds** each.
+- Loading happens only in `@gfx` / `@slider` / `@serialize` — never in `@sample` — keeping the audio thread safe.
+- MIDI is received on the track Triggve sits on, on the default MIDI bus — see [Known Limitations](#known-limitations).
+- After editing the JSFX on disk, reload the FX (`F5` or reopen) to pick up changes.
+
 ## Features
 
 - **Two Trigger Sources**: **Audio** transient detection (envelope follower with configurable attack/release, threshold, hysteresis, and retrigger holdoff) or **MIDI** note-ons (**Trigger Source** menu, default MIDI).
@@ -114,45 +152,6 @@ input (dry) ──────────────────────�
                                                                                               ▼
                                                                                            output
 ```
-
-
-## Installation
-
-### Linux
-
-```bash
-git clone https://github.com/svendheim/triggve.git
-mkdir -p ~/.config/REAPER/Effects/Triggve
-cp triggve/Triggve.jsfx ~/.config/REAPER/Effects/Triggve/
-```
-
-To update to a newer release later:
-
-```bash
-cd triggve && git pull && cp Triggve.jsfx ~/.config/REAPER/Effects/Triggve/
-```
-
-### Manual (any platform)
-
-Copy `Triggve.jsfx` into your REAPER resource path's `Effects/` folder — find it via **Options → Show REAPER resource path**. Portable installs keep it next to the REAPER binary; on macOS it's `~/Library/Application Support/REAPER/Effects`.
-
-Then open REAPER, press `F5` in the FX browser to rescan, and search for **Triggve**.
-
-## Usage
-
-1. Insert `Triggve` on the track carrying the drum audio.
-2. Open the plugin's **floating FX window** (not the TCP-embedded view) so drag & drop works.
-3. Choose the **Trigger Source**:
-   - **MIDI** (default): feed MIDI into that track like into any other FX — a MIDI item on the same track, a live MIDI input monitored on the track, or routed from another track (its routing dialog → *MIDI output → this track*). Note-ons then pick zones by velocity: **1–40 Low, 41–89 Medium, 90–126 Hard, 127 Rimshot** — on any MIDI channel. With **MIDI Passthrough** On (default) the notes continue downstream too — e.g. Triggve and a soft synth can share the same MIDI. Drag up to 8 WAVs into each zone row.
-   - **Audio**: drag WAVs into the single **Hits** bank and adjust **Threshold** so hits fire reliably without false triggers; Attack/Release/Holdoff/Hysteresis shape the retrigger behaviour (see "How the detector works"). The left-hand row highlight and the **Last** readout show what fired.
-4. Pick a **Sample Selection** mode (it applies within each zone/bank).
-5. Set **Mix** to `1` for full replacement, or lower it to blend the dry drum back in.
-
-Notes:
-- Samples are resampled to the project sample rate on load and capped at **4 seconds** each.
-- Loading happens only in `@gfx` / `@slider` / `@serialize` — never in `@sample` — keeping the audio thread safe.
-- MIDI is received on the track Triggve sits on, on the default MIDI bus — see [Known Limitations](#known-limitations).
-- After editing the JSFX on disk, reload the FX (`F5` or reopen) to pick up changes.
 
 ## Known Limitations
 
