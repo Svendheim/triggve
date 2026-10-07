@@ -2,10 +2,15 @@
 
 All notable changes to **Triggve** are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project uses a beta versioning scheme (`beta1`, `beta2`, … → `1.0`).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+**1.0** is the first stable release; work after it ships as small maintenance
+releases (`1.0.1`, `1.0.2`, …). Earlier development used beta names
+(`beta1`, `beta2`).
 
-## [Unreleased]
+## [1.0] — 2026-10-07
+
+First stable release — the feature-complete plugin. Everything below is what
+went into 1.0; later releases only fix and refine it.
 
 ### Added
 - **MIDI triggering** — new **Trigger Source** control (Audio / MIDI, default **MIDI**). Note-ons are drained once per block in `@block` and fired inside `@sample` at their **exact sample offset**, so timing is sample-accurate at any audio block size. Note-ons with velocity 0 are treated as note-offs and never trigger.
@@ -13,6 +18,7 @@ and this project uses a beta versioning scheme (`beta1`, `beta2`, … → `1.0`)
 - **MIDI Passthrough** toggle (default **On**). Off swallows the note-on/note-off messages Triggve consumes; every other event (CC, pitch bend, program change) still flows downstream.
 - **Click-free voice release** — a voice that gets stolen from the pool, or whose slot is unloaded or re-loaded while it is still playing, now hands off to a 32-voice release pool and ramps to silence over ~4 ms instead of being cut hard. The main voice slot frees up immediately, so the incoming hit still starts with **zero added latency**.
 - **Source-aware GUI** — MIDI mode shows the four zone rows and a `N/32` status; Audio mode shows a single 8-slot **Hits** bank and a `N/8` status.
+- **Documentation** — README gains **Known Limitations** and a **Test Checklist**; the feature roadmap is replaced by a short **Versioning** statement.
 
 ### Changed
 - **Audio triggers fire immediately at the threshold crossing.** The ~1 ms velocity-measurement window is gone: no more added latency per triggered voice, which removes the comb filtering against the dry input at Mix < 1. Voice gain still converges — the per-voice 25 ms peak tracker refines it *after* the voice has started.
@@ -77,5 +83,6 @@ First beta release. **Triggve** is a REAPER JSFX audio-to-sample drum trigger fo
 ### Pre-beta history
 Development milestones before beta1: v0.1 (architecture), v0.2 (detection), v0.3 (sample loading + persistence), v0.31 (polyphonic playback, defaults), v0.4 (selection modes + GUI), v0.4.1 (safety ceiling + anti-click stop), v0.5 (peak velocity, Output Gain, wet/dry Mix, 96 voices).
 
+[1.0]: #10--2026-10-07
 [beta2]: #beta2--2026-10-06
 [beta1]: #beta1--2026-10-05

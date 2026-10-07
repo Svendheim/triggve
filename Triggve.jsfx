@@ -1,4 +1,4 @@
-desc:Triggve beta3
+desc:Triggve 1.0
 author:Stein
 tags: drums trigger instrument
 in_pin:left input
@@ -8,7 +8,7 @@ out_pin:right output
 options:maxmem=120000000
 
 // ---------------------------------------------------------------------------
-// Triggve beta3 - a REAPER JSFX audio-to-sample drum trigger.
+// Triggve 1.0 - a REAPER JSFX audio-to-sample drum trigger.
 //   * Trigger source: audio transients, or MIDI note-ons with velocity zones
 //   * Transient detector: threshold, attack, release, holdoff, hysteresis
 //   * MIDI velocity zones: Low 1-40 / Medium 41-89 / Hard 90-126 / Rimshot 127

@@ -5,11 +5,14 @@ Triggve — a REAPER JSFX drum trigger.
 ## Goal
 Build a REAPER JSFX audio-to-sample drum trigger for Linux.
 
-Version 1:
-- Detect hits from incoming track audio.
-- Play WAV samples from a small randomized round-robin pool.
-- Support overlapping sample voices.
-- MIDI and velocity layers are out of scope.
+1.0 is released and covers:
+- Detect hits from incoming track audio or from MIDI note-ons.
+- Play WAV samples from a small randomized round-robin pool (MIDI velocity zones on the MIDI path).
+- Support overlapping sample voices with click-free release.
+- Output never exceeds 0 dBFS and never pops.
+
+Work after 1.0 is maintenance: small fixes and patch releases such as 1.0.1,
+not new feature programs.
 
 ## Safety & Scope
 - Work only within this repository.

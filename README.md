@@ -2,7 +2,7 @@
   <img src="triggve-logo.jpeg" alt="Triggve logo" width="420">
 </p>
 
-A lightweight, low-latency REAPER JSFX drum replacement and sample triggering plugin for Linux and cross-platform REAPER environments. Current version: **beta3**.
+A lightweight, low-latency REAPER JSFX drum replacement and sample triggering plugin for Linux and cross-platform REAPER environments. Current version: **1.0**.
 
 `Triggve` turns drum hits into samples, triggered by either **audio transients** (an envelope detector with threshold, attack/release, hysteresis, and holdoff) or **MIDI note-ons** (parsed per block, fired at the event's exact sample offset). MIDI velocity picks one of four fixed **velocity zones** — **Low** (1–40), **Medium** (41–89), **Hard** (90–126), **Rimshot** (127); audio uses a single 8-slot bank and fires immediately at the threshold crossing. Each zone/bank holds up to 8 samples, picked with **Single**, **Round-robin**, or **Random (no immediate repeat)** selection. By default the dry input is muted (**Mix** = 1), so the plugin acts as a full drum replacement.
 
@@ -136,17 +136,47 @@ input (dry) ──────────────────────�
 Notes:
 - Samples are resampled to the project sample rate on load and capped at **4 seconds** each.
 - Loading happens only in `@gfx` / `@slider` / `@serialize` — never in `@sample` — keeping the audio thread safe.
-- MIDI is received on the track Triggve sits on; multi-port/"all bus" MIDI and per-slot note learn are not supported yet.
+- MIDI is received on the track Triggve sits on, on the default MIDI bus — see [Known Limitations](#known-limitations).
 - After editing the JSFX on disk, reload the FX (`F5` or reopen) to pick up changes.
 
-## Roadmap
+## Known Limitations
 
-Triggve is now in **beta**. Versions progress **beta1 → beta2 → … → 1.0**. Pre-beta development history (v0.1–v0.5) is recorded in [CHANGELOG.md](CHANGELOG.md).
+Triggve does one job — turn hits into samples — and deliberately does not try to be a full sampler. What it does not do:
 
-- [x] **beta1** — First beta: transient detector, 8-slot drag & drop pool, 96-voice playback, Single/Round-robin/Random selection, peak-accurate velocity, Output Gain, wet/dry Mix, soft-clip safety ceiling, click-free transport stop.
-- [x] **beta2** — **Velocity layers**: Ghost / Low / Medium / Hard, up to 8 slots each (32 total), dB-boundary classification from the hit peak, per-layer Single/Round-robin/Random selection, layer-per-row GUI.
-- [ ] **beta3** — **MIDI triggering**: Trigger Source (Audio / MIDI), fixed MIDI velocity zones (Low / Medium / Hard / Rimshot) as the slot grid, passthrough toggle, sample-accurate note firing; audio path simplified to one 8-slot bank with immediate, latency-free triggering.
-- [ ] **1.0** — Stable release. Candidates for the betas ahead: **Both** audio+MIDI mode, per-slot MIDI learn / note→slot mapping (multi-kit), per-slot enable + weighting within a zone, onset/derivative detection, click-free voice-steal / unload edge handling.
+- **One instrument, not a kit.** Any note-on triggers the same four zones; there is no note→slot mapping (kick on C1, snare on D1, …) and no per-slot MIDI learn.
+- **Audio or MIDI, not both at once.** **Trigger Source** picks one path.
+- **Default MIDI bus only.** Events arriving on additional MIDI buses/ports (`ext_midi_bus`) are not read.
+- **Up to 64 queued note-ons per audio block.** Beyond that the extras are dropped — they still pass through downstream.
+- **Passthrough Off swallows every note-on/note-off.** With no channel filter, notes cannot be selectively passed.
+- **Samples are referenced by path, not embedded.** Move a project without its media and the slots come back as `load error`.
+- **4-second sample cap**, resampled to the project rate on load; longer files are truncated.
+- **Envelope-based detection, not onset/derivative.** Dense or bleed-heavy playing can double-fire or miss very soft ghosts, and retrigger speed depends on Release/Hysteresis.
+- **No latency compensation or trigger offset.** Audio fires at the threshold crossing, so the small detector lag from Attack stays where it is.
+- **Velocity gain is a straight `vel / 127`** — no velocity curve, no per-zone trim.
+- **No pitch, pan or stretch controls.** Samples play at their original pitch and length, centred; a mono sample fills both channels.
+- **Drag & drop needs the floating FX window** (a REAPER restriction), and there are no factory presets.
+
+## Test Checklist
+
+JSFX has no unit tests, so this is the pass to run after any change.
+
+- **Install** — FX rescan (`F5`), insert, floating window opens, version in the FX title matches.
+- **Audio trigger** — threshold sweep for misses and false fires · fast repeats against Holdoff/Release · **Mix ≈ 0.5** for phase/comb artefacts · Dynamic Velocity on/off · Output Gain pushed into the ceiling still never exceeds 0 dBFS.
+- **MIDI trigger** — zone edges **40→41, 89→90, 126→127** land in the right rows · velocity 0 never triggers · 127 hits Rimshot · several channels all trigger · on-grid *and* deliberately off-grid notes stay tight · note-off does not cut a playing voice.
+- **MIDI routing** — with Passthrough **On** a downstream synth hears everything; with **Off** the notes vanish while CC/pitch-bend still pass · two Triggve instances chained.
+- **Voices & clicks** — long overlapping tails · spam until `Voices` nears 96 and the oldest retires silently · unload mid-ring fades instead of popping · drop a new WAV onto a slot that is still playing · Clear All mid-playback.
+- **Persistence** — save and reopen: slots reload · paths containing spaces/unicode · a missing file reports `load error` · undo/redo.
+- **Media** — mono and stereo files · 44.1k/48k media inside a 96k project · a >4 s file truncates · a non-audio file shows the error state.
+- **Transport** — stopping mid-tail fades smoothly · play/pause/loop · offline render and freeze match realtime.
+- **Automation** — the hidden parameters are automatable and recall correctly · switching **Trigger Source** keeps every value · automation write.
+- **Performance** — CPU under dense MIDI with long samples · several instances across tracks.
+- **UI** — resize the window small (faders stay usable) · menus open · hover, `x`, and right-click unload · wheel and Shift+wheel.
+
+## Versioning
+
+**1.0 is the release.** Triggve does what it was built to do — audio and MIDI triggering, velocity zones, round-robin playback, and an output that can neither exceed 0 dBFS nor click — so there is no feature roadmap beyond this point. Later work is maintenance: fixes and small releases such as **1.0.1**, driven by whatever real use turns up.
+
+Earlier milestones (pre-beta v0.1–v0.5, beta1, beta2) are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
