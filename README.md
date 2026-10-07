@@ -121,7 +121,7 @@ input (dry) ──────────────────────�
 ### Linux
 
 ```bash
-git clone https://github.com/Svendheim/triggve.git
+git clone https://github.com/svendheim/triggve.git
 mkdir -p ~/.config/REAPER/Effects/Triggve
 cp triggve/Triggve.jsfx ~/.config/REAPER/Effects/Triggve/
 ```
