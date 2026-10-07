@@ -17,7 +17,7 @@ options:maxmem=120000000
 //   * Drag & drop loading, per-slot readout, easy unload, project persistence
 //   * 96-voice polyphonic playback, optional dynamic velocity scaling
 //   * Output Gain, wet/dry Mix, soft-clip safety ceiling, click-free stop
-//   * MIDI passthrough (on/off) with channel filter, sample-accurate timing
+//   * MIDI passthrough (on/off), sample-accurate note timing
 // ---------------------------------------------------------------------------
 
 // The '-' prefix hides REAPER's native slider strip; all controls are drawn
@@ -31,11 +31,11 @@ slider6:1<0,1,0.01>-Mix
 slider7:1<0,1,1{Dynamic Velocity: Off,Dynamic Velocity: On}>-Dynamic Velocity
 slider8:2<0,2,1{Single (first slot),Round-robin,Random}>-Sample Selection
 slider9:0<-24,24,0.1>-Output Gain (dB)
-// 10-12 are intentionally left unused: an earlier beta2 build used them for
-// velocity-layer boundary offsets. Leaving them unallocated means values saved
-// by those builds can never shift into the MIDI controls below.
+// 10-12 and 14 are intentionally left unused: a beta2 build used 10-12 for
+// velocity-layer boundaries and a beta3 build used 14 for a MIDI channel
+// filter. Leaving them unallocated means values saved by those builds can
+// never shift into the controls below.
 slider13:1<0,1,1{Trigger Source: Audio,Trigger Source: MIDI}>-Trigger Source
-slider14:0<0,16,1{All,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-MIDI Channel
 slider15:1<0,1,1{Passthrough: Off,Passthrough: On}>-MIDI Passthrough
 
 @init
@@ -551,13 +551,12 @@ blk_pos = 0;
 
 while (midirecv(moff, m1, m2, m3)) (
   status = m1 & $xF0;
-  chan = (m1 & $x0F) + 1;                       // 1..16
   isNote = (status == $x90 || status == $x80);
-  chanOk = (slider14 == 0) || (chan == slider14);
 
   // triggering note-on? queued here, fired at its exact offset in @sample.
   // Note-ons with velocity 0 are note-offs in disguise: never trigger.
-  (src_midi && status == $x90 && m3 > 0 && chanOk) ? (
+  // Channels are not filtered: a note-on on any channel can trigger.
+  (src_midi && status == $x90 && m3 > 0) ? (
     pend_n < MAXPEND ? (
       p_off[pend_n] = moff;
       p_vel[pend_n] = m3;
@@ -566,9 +565,9 @@ while (midirecv(moff, m1, m2, m3)) (
     );
   );
 
-  // forward, except: passthrough off + MIDI source + a note on a matching
-  // channel -- those notes are Triggve's now and get swallowed.
-  (slider15 || !src_midi || !(isNote && chanOk)) ? (
+  // forward, except: passthrough off + MIDI source + a note -- those notes are
+  // Triggve's now and get swallowed.
+  (slider15 || !src_midi || !isNote) ? (
     midisend(moff, m1, m2, m3);
   );
 );
@@ -849,10 +848,8 @@ slider13 == 0 ? (
   strcpy(#lbl, "Output Gain (dB)");
   slider9 = fader(9, slider9, -24, 24, 0.1, 1, 1, cx1, ry, colw, rowh);
 
-  strcpy(#lbl, "Dynamic Velocity");
-  slider7 ? strcpy(#lbl2, "On") : strcpy(#lbl2, "Off");
-  strcpy(#mopts, "Off|On");
-  slider7 = menu_btn(7, slider7, cx2, ry, colw, rowh);
+  strcpy(#lbl, "Mix");
+  slider6 = fader(6, slider6, 0, 1, 0.01, 2, 1, cx2, ry, colw, rowh);
   ry += pitch;
 
   strcpy(#lbl, "Sample Selection");
@@ -868,10 +865,10 @@ slider13 == 0 ? (
   slider13 = menu_btn(13, slider13, cx2, ry, colw, rowh);
   ry += pitch;
 
-  strcpy(#lbl, "MIDI Channel");
-  slider14 == 0 ? strcpy(#lbl2, "All channels") : sprintf(#lbl2, "Channel %d", slider14);
-  strcpy(#mopts, "All|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16");
-  slider14 = menu_btn(14, slider14, cx1, ry, colw, rowh);
+  strcpy(#lbl, "Dynamic Velocity");
+  slider7 ? strcpy(#lbl2, "On") : strcpy(#lbl2, "Off");
+  strcpy(#mopts, "Off|On");
+  slider7 = menu_btn(7, slider7, cx1, ry, colw, rowh);
 
   strcpy(#lbl, "MIDI Passthrough");
   slider15 ? strcpy(#lbl2, "On") : strcpy(#lbl2, "Off");
