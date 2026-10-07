@@ -174,7 +174,7 @@ Triggve does one job — turn hits into samples — and deliberately does not tr
 
 JSFX has no unit tests, so this is the pass to run after any change.
 
-- **Install** — FX rescan (`F5`), insert, floating window opens, version in the FX title matches.
+- **Install** — FX rescan (`F5`), insert, floating window opens, the version shown left of **Clear All** matches.
 - **Audio trigger** — threshold sweep for misses and false fires · fast repeats against Holdoff/Release · **Mix ≈ 0.5** for phase/comb artefacts · Dynamic Velocity on/off · Output Gain pushed into the ceiling still never exceeds 0 dBFS.
 - **MIDI trigger** — zone edges **40→41, 89→90, 126→127** land in the right rows · velocity 0 never triggers · 127 hits Rimshot · several channels all trigger · on-grid *and* deliberately off-grid notes stay tight · note-off does not cut a playing voice.
 - **MIDI routing** — with Passthrough **On** a downstream synth hears everything; with **Off** the notes vanish while CC/pitch-bend still pass · two Triggve instances chained.

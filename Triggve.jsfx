@@ -1,4 +1,4 @@
-desc:Triggve 1.0
+desc:Triggve
 author:Stein
 tags: drums trigger instrument
 in_pin:left input
@@ -1067,6 +1067,13 @@ gfx_rect(ca_x, ca_y, ca_w, ca_h);
 gfx_set(over_ca ? 0.05 : 0.25, over_ca ? 0.05 : 0.25, over_ca ? 0.07 : 0.28, 1);
 gfx_x = ca_x + 14; gfx_y = ca_y + 5;
 gfx_drawstr("Clear All");
+
+// ---- version label, right-aligned just left of the Clear All button ----
+// Keep this string in sync with the version in the file header comment.
+gfx_set(0.30, 0.32, 0.36, 1);
+gfx_getstr_size(ver_w, ver_h, "1.0");
+gfx_x = ca_x - 8 - ver_w; gfx_y = ca_y + 5;
+gfx_printf("1.0");
 
 // ---- zone labels (left gutter) ----
 layer = 0;

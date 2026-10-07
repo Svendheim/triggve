@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 releases (`1.0.1`, `1.0.2`, …). Earlier development used beta names
 (`beta1`, `beta2`).
 
+## [Unreleased]
+
+### Changed
+- **Version number moved into the plugin window** — `desc` no longer carries it, so REAPER's plugin list shows a clean **Triggve**; the version is now drawn just left of the **Clear All** button instead.
+
 ## [1.0] — 2026-10-07
 
 First stable release — the feature-complete plugin. Everything below is what
