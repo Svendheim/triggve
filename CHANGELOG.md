@@ -9,6 +9,9 @@ releases (`1.0.1`, `1.0.2`, …). Earlier development used beta names
 
 ## [Unreleased]
 
+### Added
+- **Known Limitations note** — README now documents that GNOME 51 / mutter 51 broke Wayland→XWayland drag-and-drop desktop-side (Ubuntu LP #2168597), with workarounds: load via REAPER's Media Explorer, or drag from an X11 file manager.
+
 ### Changed
 - **Version number moved into the plugin window** — `desc` no longer carries it, so REAPER's plugin list shows a clean **Triggve**; the version is now drawn just left of the **Clear All** button instead.
 

@@ -169,6 +169,7 @@ Triggve does one job — turn hits into samples — and deliberately does not tr
 - **Velocity gain is a straight `vel / 127`** — no velocity curve, no per-zone trim.
 - **No pitch, pan or stretch controls.** Samples play at their original pitch and length, centred; a mono sample fills both channels.
 - **Drag & drop needs the floating FX window** (a REAPER restriction), and there are no factory presets.
+- **On Wayland, drag & drop can break outside the plugin's control.** REAPER is an XWayland client on Linux, and **GNOME 51 / mutter 51** shipped a Wayland→XWayland drag-and-drop regression (Ubuntu LP #2168597) that was fixed upstream in October 2026. On an affected system drops fail into *any* REAPER window — the arrange view included — not just Triggve. Until the compositor fix reaches your distro, load samples via REAPER's **Media Explorer**, or drag from an **X11** file manager (e.g. `GDK_BACKEND=x11 nautilus`, or Dolphin).
 
 ## Test Checklist
 
