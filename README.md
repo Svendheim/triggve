@@ -28,41 +28,6 @@ Copy `Triggve.jsfx` into your REAPER resource path's `Effects/` folder — find 
 
 Then open REAPER, press `F5` in the FX browser to rescan, and search for **Triggve**.
 
-## Usage
-
-1. Insert `Triggve` on the track carrying the drum audio.
-2. Open the plugin's **floating FX window** (not the TCP-embedded view) so drag & drop works.
-3. Choose the **Trigger Source**:
-   - **MIDI** (default): feed MIDI into that track like into any other FX — a MIDI item on the same track, a live MIDI input monitored on the track, or routed from another track (its routing dialog → *MIDI output → this track*). Note-ons then pick zones by velocity: **1–40 Low, 41–89 Medium, 90–126 Hard, 127 Rimshot** — on any MIDI channel. With **MIDI Passthrough** On (default) the notes continue downstream too — e.g. Triggve and a soft synth can share the same MIDI. Drag up to 8 WAVs into each zone row.
-   - **Audio**: drag WAVs into the single **Hits** bank and adjust **Threshold** so hits fire reliably without false triggers; Attack/Release/Holdoff/Hysteresis shape the retrigger behaviour (see "How the detector works"). The left-hand row highlight and the **Last** readout show what fired.
-4. Pick a **Sample Selection** mode (it applies within each zone/bank).
-5. Set **Mix** to `1` for full replacement, or lower it to blend the dry drum back in.
-
-Notes:
-- Samples are resampled to the project sample rate on load and capped at **4 seconds** each.
-- Loading happens only in `@gfx` / `@slider` / `@serialize` — never in `@sample` — keeping the audio thread safe.
-- MIDI is received on the track Triggve sits on, on the default MIDI bus — see [Known Limitations](#known-limitations).
-- After editing the JSFX on disk, reload the FX (`F5` or reopen) to pick up changes.
-
-## Features
-
-- **Two Trigger Sources**: **Audio** transient detection (envelope follower with configurable attack/release, threshold, hysteresis, and retrigger holdoff) or **MIDI** note-ons (**Trigger Source** menu, default MIDI).
-- **MIDI Velocity Zones**: four fixed zones — **Low** (vel 1–40), **Medium** (41–89), **Hard** (90–126), **Rimshot** (127) — each a bank of up to **8 slots**. Zone selection is exact by definition; empty zones fall back to the nearest loaded one so a hit is never dropped.
-- **Sample Pool**: up to 32 slots arranged zone-per-row in MIDI mode; Audio mode shows a single 8-slot **Hits** bank. Drag & drop WAV files onto slots; per-slot loaded indicator and length / channels / rate readout.
-- **Easy Unloading**: Right-click a slot, click its `x`, or press **Clear All** (clears all 32 slots, including zones hidden in Audio mode).
-- **Project Persistence**: Loaded file paths are stored with the project via `@serialize` and re-opened on reload.
-- **Selection Modes** (per zone/bank):
-  - **Single** — always the first loaded slot in the zone/bank.
-  - **Round-robin** — cycles through loaded slots in order, wrapping and skipping empties.
-  - **Random** — uniform pick among loaded slots, never the same as the previous hit.
-- **Polyphonic Playback**: 96 independent voices so sample tails ring out naturally. If the pool ever does fill, the oldest voice is retired through a 32-voice release pool with a short fade — never a hard cut — and the new hit still starts instantly.
-- **Dynamic Velocity Scaling** (on by default): scales the voice gain with hit strength — the hit's input peak in Audio mode (refined over ~25 ms after the trigger), or `velocity / 127` in MIDI mode. Set it **Off** to let your zone samples carry the loudness at original volume; zone/bank selection itself is always active.
-- **MIDI Passthrough**: on by default, it keeps incoming notes flowing downstream (e.g. to a soft synth); turn it Off to let Triggve swallow the note-on/note-off events it consumes. Note-ons on **any** MIDI channel trigger.
-- **Makeup Output Gain**: A ±24 dB output gain to match quiet sources, protected by the soft-clip ceiling.
-- **Wet/Dry Mix**: A linear blend between the dry input and triggered samples (0 = original only, 1 = samples only), so you can dial in exactly how much of the source to keep.
-- **Output Safety & Anti-Click**: A soft-clip ceiling guarantees the output never exceeds 0 dBFS; a short transport-stop fade prevents pops when stopping mid-sample; and voices killed by voice-stealing, a slot unload, or a slot re-load ramp out over ~4 ms instead of being cut.
-- **Compact Custom UI**: All controls are drawn inside the plugin window, two per row, instead of REAPER's full-width slider strip. They stay fully automatable and are saved with the project.
-
 <p align="center">
   <img src="triggve-gui.png" alt="Triggve UI" width="640">
 </p>
@@ -85,8 +50,6 @@ All eleven controls are drawn in the plugin's own window, two per row (the dropd
 | 13 | Trigger Source | MIDI | Audio / MIDI | What fires the samples: the audio detector or incoming MIDI note-ons. |
 | 15 | MIDI Passthrough | On | Off / On | On: notes continue downstream. Off: notes Triggve consumes are swallowed. |
 
-> Slider slots **10–12 and 14** are intentionally unused. beta2 used 10–12 for velocity-layer boundaries and an earlier beta3 build used 14 for a MIDI channel filter; keeping those numbers unallocated means values saved by those builds can never shift into the controls above. Triggve now triggers on note-ons from **all MIDI channels**.
-
 ### How the detector works (Audio source)
 The plugin follows the input with an **envelope**: it rises quickly (Attack) when a hit arrives and falls slowly (Release) when it ends. A trigger fires **immediately** when the envelope crosses the **Threshold**. After firing, the detector is "disarmed" and only re-arms once the envelope falls below *Threshold minus Hysteresis*; the **Holdoff** also enforces a minimum gap between triggers. Release and Hysteresis together control how fast the next hit can be detected. Audio hits play from the single 8-slot **Hits** bank (slots 1–8); the MIDI zones stay hidden.
 
@@ -100,98 +63,9 @@ MIDI is drained once per block in `@block` and queued; each note-on is fired ins
 
 A sample is then chosen **within that zone** using the Sample Selection mode; an empty zone falls back to the nearest loaded one. **Dynamic Velocity** decides whether gain also follows velocity (`vel / 127`) or every voice plays at full level — zone selection itself always applies. Note-ons on **any** MIDI channel trigger; with **MIDI Passthrough** On (default) the notes keep flowing downstream, e.g. to a soft synth later in the chain.
 
-### What each slider does
-
-**1. Threshold (dB)** — detection sensitivity.
-The level the envelope must reach to fire. **Lower** = more sensitive (quiet/ghost notes trigger), **higher** = only strong hits trigger. Range −60 … 0 dB. Tune it so real hits fire but bleed/tails don't.
-
-**2. Envelope Attack (ms)** — how fast the detector *reacts* to a rise.
-**Lower** = snappier tracking of sharp transients; **higher** = smoother, ignoring very short clicks/noise. This shapes *detection only* — it does not change the played sample. Default **0.3 ms**: it is deliberately low because a slow attack delays the trigger, and that delay shows up as phasing against the dry input when you blend with **Mix**. Raise it if bleed or clicks cause false triggers.
-
-**3. Envelope Release (ms)** — how fast the detector *lets go* after a hit.
-This is the main control over **retrigger speed**: a shorter release drops below the re-arm point faster, allowing rapid successive hits. **Too short** and a long/ringy hit may re-fire. Default 5 ms.
-
-**4. Retrigger Holdoff (ms)** — a hard minimum gap between triggers.
-After a trigger, the plugin ignores further triggers for this long. It prevents double-triggers/machine-gunning independently of Release. Lower it for very fast rolls; raise it if a single hit fires twice. Default 20 ms.
-
-**5. Hysteresis (dB)** — the re-arm margin.
-After a hit, the envelope must fall *this far below* the Threshold before the detector re-arms. **Larger** = more robust against re-firing on decay/noise; **smaller** = more sensitive to closely spaced hits. Default 6 dB.
-
-**6. Mix** — dry/wet blend.
-`0` = original drum only, `1` = triggered sample only (full replacement), in between mixes both linearly. Default `1`. Use it to keep some of the source or to audition the samples.
-
-**7. Dynamic Velocity** — optional gain scaling by hit strength.
-**On** plays each voice scaled by the trigger's strength — the hit's input peak for Audio (refined by a ~25 ms peak tracker after the voice starts), `velocity / 127` for MIDI. **Off** plays every voice at its original volume. Default **On**. If your zone/bank samples already carry the loudness you want (e.g. dedicated soft and hard samples), set it to **Off** to avoid double scaling — the zone/bank choice is unaffected either way.
-
-**8. Sample Selection** — which loaded slot plays next, within the zone (MIDI) or bank (Audio) that was chosen for the hit.
-- **Single** — always the first loaded slot in the zone/bank.
-- **Round-robin** — cycles through that zone/bank's loaded slots in order (skips empty slots, wraps at the end).
-- **Random** — picks a loaded slot in that zone/bank at random, **never the same as the previous hit** (avoids machine-gun repetition).
-If the zone/bank has only one loaded slot, every mode plays that slot. Default **Random**.
-
-**9. Output Gain (dB)** — makeup gain for the samples.
-Applied to the triggered samples (not the dry input) before the safety ceiling. Use it to match the source loudness if your samples are quieter. Range ±24 dB. The soft-clip prevents the output from exceeding 0 dBFS even when boosted. Default 0 dB.
-
-**13. Trigger Source** — what fires the samples.
-**Audio** runs the envelope detector below and plays the single 8-slot bank (the zone rows are hidden). **MIDI** ignores the detector entirely and plays on incoming note-ons, picking the zone by velocity. Default **MIDI**.
-
-**15. MIDI Passthrough** — whether the notes keep going.
-**On** (default) forwards every MIDI event downstream, e.g. to a soft synth further along the FX chain. **Off** swallows the note-on/note-off messages (the ones Triggve itself consumes) and still forwards everything else — CC, pitch bend, and program change.
-
-### Signal flow
-```
-                 ┌ Audio: detector (Attack/Release/Threshold/Hysteresis/Holdoff) ─► immediate hit ─► Hits bank (slots 1-8)
-trigger source ──┤
-                 └ MIDI:   note-ons queued in @block ─► fired at exact offset ─► zone by velocity (Low/Med/Hard/Rim)
-                                                                                              │
-                                                                                              ▼
-                     slot selection within zone/bank (Single/Round-robin/Random) ─► voice ─► × gain (Dynamic Velocity)
-                                                                                              │
-                                       × Output Gain ─► soft-clip ceiling ◄───────────────────┘
-input (dry) ────────────────────────────────────────────────────────────────────────► Mix ◄──┤
-                                                                                              ▼
-                                                                                           output
-```
-
 ## Known Limitations
 
-Triggve does one job — turn hits into samples — and deliberately does not try to be a full sampler. What it does not do:
-
-- **One instrument, not a kit.** Any note-on triggers the same four zones; there is no note→slot mapping (kick on C1, snare on D1, …) and no per-slot MIDI learn.
-- **Audio or MIDI, not both at once.** **Trigger Source** picks one path.
-- **Default MIDI bus only.** Events arriving on additional MIDI buses/ports (`ext_midi_bus`) are not read.
-- **Up to 64 queued note-ons per audio block.** Beyond that the extras are dropped — they still pass through downstream.
-- **Passthrough Off swallows every note-on/note-off.** With no channel filter, notes cannot be selectively passed.
-- **Samples are referenced by path, not embedded.** Move a project without its media and the slots come back as `load error`.
-- **4-second sample cap**, resampled to the project rate on load; longer files are truncated.
-- **Envelope-based detection, not onset/derivative.** Dense or bleed-heavy playing can double-fire or miss very soft ghosts, and retrigger speed depends on Release/Hysteresis.
-- **No latency compensation or trigger offset.** Audio fires at the threshold crossing, so the small detector lag from Attack stays where it is.
-- **Velocity gain is a straight `vel / 127`** — no velocity curve, no per-zone trim.
-- **No pitch, pan or stretch controls.** Samples play at their original pitch and length, centred; a mono sample fills both channels.
-- **Drag & drop needs the floating FX window** (a REAPER restriction), and there are no factory presets.
 - **On Wayland, drag & drop can break outside the plugin's control.** REAPER is an XWayland client on Linux, and **GNOME 51 / mutter 51** shipped a Wayland→XWayland drag-and-drop regression (Ubuntu LP #2168597) that was fixed upstream in October 2026. On an affected system drops fail into *any* REAPER window — the arrange view included — not just Triggve. Until the compositor fix reaches your distro, load samples via REAPER's **Media Explorer**, or drag from an **X11** file manager (e.g. `GDK_BACKEND=x11 nautilus`, or Dolphin).
-
-## Test Checklist
-
-JSFX has no unit tests, so this is the pass to run after any change.
-
-- **Install** — FX rescan (`F5`), insert, floating window opens, the version shown left of **Clear All** matches.
-- **Audio trigger** — threshold sweep for misses and false fires · fast repeats against Holdoff/Release · **Mix ≈ 0.5** for phase/comb artefacts · Dynamic Velocity on/off · Output Gain pushed into the ceiling still never exceeds 0 dBFS.
-- **MIDI trigger** — zone edges **40→41, 89→90, 126→127** land in the right rows · velocity 0 never triggers · 127 hits Rimshot · several channels all trigger · on-grid *and* deliberately off-grid notes stay tight · note-off does not cut a playing voice.
-- **MIDI routing** — with Passthrough **On** a downstream synth hears everything; with **Off** the notes vanish while CC/pitch-bend still pass · two Triggve instances chained.
-- **Voices & clicks** — long overlapping tails · spam until `Voices` nears 96 and the oldest retires silently · unload mid-ring fades instead of popping · drop a new WAV onto a slot that is still playing · Clear All mid-playback.
-- **Persistence** — save and reopen: slots reload · paths containing spaces/unicode · a missing file reports `load error` · undo/redo.
-- **Media** — mono and stereo files · 44.1k/48k media inside a 96k project · a >4 s file truncates · a non-audio file shows the error state.
-- **Transport** — stopping mid-tail fades smoothly · play/pause/loop · offline render and freeze match realtime.
-- **Automation** — the hidden parameters are automatable and recall correctly · switching **Trigger Source** keeps every value · automation write.
-- **Performance** — CPU under dense MIDI with long samples · several instances across tracks.
-- **UI** — resize the window small (faders stay usable) · menus open · hover, `x`, and right-click unload · wheel and Shift+wheel.
-
-## Versioning
-
-**1.0 is the release.** Triggve does what it was built to do — audio and MIDI triggering, velocity zones, round-robin playback, and an output that can neither exceed 0 dBFS nor click — so there is no feature roadmap beyond this point. Later work is maintenance: fixes and small releases such as **1.0.1**, driven by whatever real use turns up.
-
-Earlier milestones (pre-beta v0.1–v0.5, beta1, beta2) are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
