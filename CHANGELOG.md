@@ -10,9 +10,14 @@ releases (`1.0.1`, `1.0.2`, …). Earlier development used beta names
 ## [Unreleased]
 
 ### Added
+- **One-click folder loading** — every row in the plugin window has a **Load** button. It asks `scripts/Triggve_Load.lua` to open REAPER's native file picker; the folder of whatever sample you pick fills that row with its first 8 WAV/OGG/FLAC files in name order (extras ignored, slots the folder cannot fill cleared, playing voices faded). No drag & drop involved, so loading works on Wayland regardless of the compositor regression below.
+- **`install.sh`** — one command installs or upgrades both parts: the JSFX to `Effects/Triggve/`, the loader script to `Scripts/`, and a line in `Scripts/__startup.lua` so REAPER starts the loader itself. Re-running it is safe, and an existing `__startup.lua` is kept.
+- **Folder-loader hand-off** — the plugin and the script exchange a request id, so a hand-off file left on disk can never be applied twice or to the wrong instance; state from a project saved before this change still loads.
 - **Known Limitations note** — README now documents that GNOME 51 / mutter 51 broke Wayland→XWayland drag-and-drop desktop-side (Ubuntu LP #2168597), with workarounds: load via REAPER's Media Explorer, or drag from an X11 file manager.
 
 ### Changed
+- **README installation is now `git clone` + `./install.sh`**, with the upgrade path being the same command after a `git pull`; drag & drop is documented as the per-slot shortcut it is rather than the main loading path.
+- **Status line reports folder loading** — `choose a folder ...` while a request is open, `no folder received` when nothing came back.
 - **Version number moved into the plugin window** — `desc` no longer carries it, so REAPER's plugin list shows a clean **Triggve**; the version is now drawn just left of the **Clear All** button instead.
 
 ## [1.0] — 2026-10-07

@@ -8,29 +8,95 @@ A lightweight, 100% vibecoded low-latency REAPER JSFX drum replacement and sampl
 
 ## Installation
 
-### Linux
+Needs REAPER **6.29 or newer** (the version where JSFX can resample samples to
+the project rate — any current REAPER 7 build is fine).
+
+### Linux and macOS
 
 ```bash
 git clone https://github.com/svendheim/triggve.git
-mkdir -p ~/.config/REAPER/Effects/Triggve
-cp triggve/Triggve.jsfx ~/.config/REAPER/Effects/Triggve/
+cd triggve && ./install.sh
 ```
 
-To update to a newer release later:
+Then **restart REAPER**. Add Triggve to a track (**Add FX → JS: Triggve**), open
+it and press `Load` on a row: REAPER's file picker opening is the proof the
+loader is running.
+
+`install.sh` is the whole installation. It copies the plug-in to
+`<resource path>/Effects/Triggve/`, the folder loader to
+`<resource path>/Scripts/`, and adds one `dofile` line to
+`<resource path>/Scripts/__startup.lua` so REAPER starts the loader at launch —
+that loader is what the plugin's **Load** buttons talk to. It finds your
+resource path by itself and re-running it is harmless.
+
+Upgrading is the same command:
 
 ```bash
-cd triggve && git pull && cp Triggve.jsfx ~/.config/REAPER/Effects/Triggve/
+cd triggve && git pull && ./install.sh
+```
+
+Portable install, or Windows? Tell it where REAPER keeps its settings (Windows
+is usually `%APPDATA%\REAPER`):
+
+```bash
+REAPER_DIR="$HOME/portable/REAPER" ./install.sh
 ```
 
 ### Manual (any platform)
 
-Copy `Triggve.jsfx` into your REAPER resource path's `Effects/` folder — find it via **Options → Show REAPER resource path**. Portable installs keep it next to the REAPER binary; on macOS it's `~/Library/Application Support/REAPER/Effects`.
+Find your resource path in REAPER under **Options → Show REAPER resource path**,
+then:
 
-Then open REAPER, press `F5` in the FX browser to rescan, and search for **Triggve**.
+1. Copy `Triggve.jsfx` to `<resource path>/Effects/Triggve/`.
+2. Copy `scripts/Triggve_Load.lua` to `<resource path>/Scripts/`.
+3. Put this one line in `<resource path>/Scripts/__startup.lua`, creating the
+   file if you don't already have one, so the loader runs for the whole session:
+
+   ```lua
+   dofile(reaper.GetResourcePath() .. "/Scripts/Triggve_Load.lua")
+   ```
+
+4. Restart REAPER, or press `F5` in the FX browser to rescan the JSFX and run
+   `Script: Triggve_Load.lua` once from the action list.
+
+Without steps 2–3 the plugin still works, but only through drag & drop: the
+`Load` buttons have nothing to ask, and say `no folder received`.
+
+### Uninstall
+
+Delete `<resource path>/Effects/Triggve/` and
+`<resource path>/Scripts/Triggve_Load.lua`, and remove the line marked
+`Triggve folder loader` from `<resource path>/Scripts/__startup.lua`.
 
 <p align="center">
   <img src="triggve-gui.png" alt="Triggve UI" width="640">
 </p>
+
+## Loading samples
+
+**Click `Load` on a row.** The plugin asks the helper script to open REAPER's
+native file picker; choose *any* file from the folder you want and that
+folder's samples are loaded straight into the row — no dragging, so nothing
+depends on desktop drag & drop working.
+
+- Files are taken in **name order**, and the row's **first 8** WAV / OGG / FLAC
+  files are used. Anything past that is ignored, and slots the folder cannot
+  fill are emptied, so the row ends up holding exactly what you pointed at.
+- Audio mode has one row (**Hits**), MIDI mode has one per velocity zone, so a
+  drum kit is four clicks: one folder per articulation.
+- Reloaded slots fade out any voice still playing them, so loading mid-playback
+  is click-free.
+- The status line says `choose a folder ...` while the picker is open, and
+  `no folder received` if nothing came back — usually because the helper script
+  is not running (see Installation step 2 / `install.sh`).
+- The button needs a little room under the zone name, so it disappears if the
+  plugin window is squeezed very short. Two hidden parameters carry the request
+  between plug-in and script; they are stored with the project like everything
+  else and are not meant to be touched.
+
+**Drag & drop still works** for filling a single slot: drag a file onto a slot,
+or several files onto the grid. Right-click a slot (or its `x`) to unload it, or
+**Clear All** to empty the plugin.
 
 ## Controls
 
@@ -65,7 +131,8 @@ A sample is then chosen **within that zone** using the Sample Selection mode; an
 
 ## Known Limitations
 
-- **On Wayland, drag & drop can break outside the plugin's control.** REAPER is an XWayland client on Linux, and **GNOME 51 / mutter 51** shipped a Wayland→XWayland drag-and-drop regression (Ubuntu LP #2168597) that was fixed upstream in October 2026. On an affected system drops fail into *any* REAPER window — the arrange view included — not just Triggve. Until the compositor fix reaches your distro, load samples via REAPER's **Media Explorer**, or drag from an **X11** file manager (e.g. `GDK_BACKEND=x11 nautilus`, or Dolphin).
+- **On Wayland, drag & drop can break outside the plugin's control.** REAPER is an XWayland client on Linux, and **GNOME 51 / mutter 51** shipped a Wayland→XWayland drag-and-drop regression (Ubuntu LP #2168597) that was fixed upstream in October 2026. On an affected system drops fail into *any* REAPER window — the arrange view included — not just Triggve. This is why every row has a **Load** button: it goes through REAPER's own dialog instead of the desktop's drag-and-drop bridge. Failing that, load samples via REAPER's **Media Explorer**, or drag from an **X11** file manager (e.g. `GDK_BACKEND=x11 nautilus`, or Dolphin).
+- **The `Load` button needs the helper script running.** REAPER does the folder dialog and directory listing for the plugin, so the plugin alone cannot fill a row — `install.sh` (or Installation step 2) starts it at launch. Without it, clicking `Load` does nothing beyond the `no folder received` note in the status line.
 
 ## License
 

@@ -14,7 +14,8 @@ options:maxmem=120000000
 //   * MIDI velocity zones: Low 1-40 / Medium 41-89 / Hard 90-126 / Rimshot 127
 //   * Audio source plays a single 8-slot bank, fired immediately at threshold
 //   * Per-zone selection: Single / Round-robin / Random (no immediate repeat)
-//   * Drag & drop loading, per-slot readout, easy unload, project persistence
+//   * Loading: one-click folder load (helper script) or drag & drop per slot
+//   * Per-slot readout, easy unload, project persistence of every sample
 //   * 96-voice polyphonic playback, optional dynamic velocity scaling
 //   * Output Gain, wet/dry Mix, soft-clip ceiling, click-free stop & release
 //   * MIDI passthrough (on/off), sample-accurate note timing
@@ -37,6 +38,18 @@ slider9:0<-24,24,0.1>-Output Gain (dB)
 // never shift into the controls below.
 slider13:1<0,1,1{Trigger Source: Audio,Trigger Source: MIDI}>-Trigger Source
 slider15:1<0,1,1{Passthrough: Off,Passthrough: On}>-MIDI Passthrough
+
+// Invisible helpers for one-click folder loading. JSFX cannot open a folder
+// dialog or list a directory, so scripts/Triggve_Load.lua does that part: it
+// polls slider20, shows REAPER's native picker and writes the chosen folder's
+// first samples to Data/triggve_load.txt (filename:0 below). slider21 carries
+// the row that was clicked; slider20 is the request id that identifies the
+// handoff, so a stale file is never applied twice. The helper locates both by
+// name, so the numbers may move but the names must not.
+slider20:0<0,1000000,1>-Load request
+slider21:0<0,3,1>-Load zone
+
+filename:0,triggve_load.txt
 
 @init
 
@@ -104,6 +117,14 @@ setup_geometry();
 prev_cap = 0;
 ui_drag = -1;          // id of the fader currently being dragged (-1 = none)
 ui_dirty = 0;          // set when a custom control changed a slider
+
+// ---- folder-loader state -------------------------------------------------
+// load_done is saved by @serialize, which may run before @init, so it is
+// deliberately not reset here: it has to survive to keep a handoff file from
+// being applied twice.
+load_pending = 0;      // a Load request is waiting for the helper script
+load_wait = 0;         // time_precise() of that request
+load_poll = 0;         // last time the handoff file was checked
 
 // ---- voice engine state --------------------------------------------------
 voice_age = 0;
@@ -588,6 +609,83 @@ function release_slot_voices(idx) local(i) (
   ));
 );
 
+// ---- one-click folder loading ----------------------------------------------
+// JSFX cannot open a folder dialog, list a directory, or write a file outside
+// @serialize, so scripts/Triggve_Load.lua handles that side: it polls the Load
+// request slider, shows REAPER's native picker and writes the chosen folder's
+// first samples to triggve_load.txt:
+//
+//   <request id>     the clicking instance's slider20 at the time of the click
+//   <row>            the row that was clicked (audio mode's bank is row 0)
+//   <sample path>    up to 8 absolute paths
+//
+// Reading that small file a few times a second, only from @gfx, is cheap and
+// keeps all of this out of @sample.
+
+// Strip trailing newline characters from #ldline, the handoff reader's scratch
+// line. Done inline on #ldline because EEL2 string parameters are copies.
+function ld_trim() local(c, more) (
+  more = 1;
+  while (more && strlen(#ldline) > 0) (
+    c = str_getchar(#ldline, -1);
+    (c == 10 || c == 13) ? ( str_setlen(#ldline, strlen(#ldline) - 1); )
+                         : ( more = 0; );
+  );
+);
+
+// The integer at the start of #ldline, used for the two header lines only.
+function ld_num() local(i, n, c, len) (
+  n = 0;
+  i = 0;
+  len = strlen(#ldline);
+  while (i < len) (
+    c = str_getchar(#ldline, i);
+    (c >= 48 && c <= 57) ? ( n = n*10 + (c - 48); );
+    i += 1;
+  );
+  n;
+);
+
+// One line of the handoff file into #ldline; leaves it empty at end of file.
+function ld_line(fh) (
+  strcpy(#ldline, "");
+  file_avail(fh) > 0 ? ( file_string(fh, #ldline); ld_trim(); );
+);
+
+// Apply the handoff file if it carries a request this instance has not seen,
+// making the clicked row hold exactly the samples the helper delivered.
+function check_load_file() local(fh, id, row, i, base) (
+  fh = file_open(0);                 // filename:0 -> REAPER/Data/triggve_load.txt
+  fh < 0 ? ( fh = file_open("triggve_load.txt"); );  // effect folder, then Data
+  fh >= 0 ? (
+    ld_line(fh);
+    id = ld_num();
+    (id > 0 && id == slider20 && id != load_done) ? (
+      ld_line(fh);
+      row = ld_num();
+      load_done = id;                // consumed, whatever happens below
+      load_pending = 0;
+      (row >= 0 && row < LAYERS) ? (
+        base = row * SPL;
+        i = 0;
+        while (i < SPL) (
+          ld_line(fh);
+          strlen(#ldline) > 0 ? (
+            // a running voice must let go of the slot before it is refilled
+            release_slot_voices(base + i);
+            set_path(base + i, #ldline);
+            load_slot(base + i, #ldline);
+          ) : (
+            clear_slot(base + i);
+          );
+          i += 1;
+        );
+      );
+    );
+    file_close(fh);
+  );
+);
+
 // Trigger from a MIDI note-on (queued in @block, fired at its exact sample
 // offset in @sample). Velocity is exact, so it picks the zone directly --
 // no measurement window, no peak tracking, zero added latency.
@@ -836,6 +934,12 @@ file_string(0, #path29);
 file_string(0, #path30);
 file_string(0, #path31);
 
+// Last folder request this instance applied. Appended at the very end, so a
+// project saved before it existed just reads nothing here and leaves it at 0.
+// It is not reset in @init: it has to outlive a project reload so an old
+// handoff file can never be applied a second time.
+file_var(0, load_done);
+
 // On load, re-open any saved samples so slots survive project reloads.
 reading ? (
   strlen(#path0)  > 0 ? load_slot(0,  #path0);
@@ -1021,6 +1125,23 @@ ca_w = 102;
 ca_h = 26;
 over_ca = (mouse_x >= ca_x && mouse_x < ca_x+ca_w && mouse_y >= ca_y && mouse_y < ca_y+ca_h);
 
+// ---- per-row "Load" button hit testing (folder loading via the helper) ----
+lb_show = ch >= 80;                // needs room under the zone name and range
+lb_x = pad + 8;
+lb_w = gutter - 20;
+lb_h = 20;
+lb_y = 56;                         // offset inside a row, see the draw loop
+lb_over = -1;
+lb_req = -1;                       // row whose Load button was just clicked
+lbr = 0;
+loop(rows, (
+  (lb_show && mouse_x >= lb_x && mouse_x < lb_x+lb_w &&
+   mouse_y >= gy + lbr*(ch+gap) + lb_y &&
+   mouse_y <  gy + lbr*(ch+gap) + lb_y + lb_h) ? ( lb_over = lbr; );
+  lbr += 1;
+));
+lclick && lb_over >= 0 ? ( lb_req = lb_over; );
+
 // ---- handle dropped files ----
 n = 0;
 while (gfx_getdropfile(n, #dropfile)) (
@@ -1042,6 +1163,27 @@ lclick && over_ca ? clear_all();
 lclick && xbtn >= 0 ? clear_slot(xbtn);
 rclick && hover >= 0 ? clear_slot(hover);
 
+// ---- folder-load request ----
+// The click only leaves a message for the helper script: REAPER does the
+// dialog and the directory reading, this instance picks the answer back up.
+lb_req >= 0 ? (
+  slider21 = lb_req;
+  slider20 += 1;
+  // Both notifications, because the helper script has to see the new value:
+  // slider_automate() tells the host the parameter moved, sliderchange() tells
+  // the JS wrapper to refresh. One click, so the duplication costs nothing.
+  slider_automate(slider20);
+  slider_automate(slider21);
+  sliderchange(slider20);
+  sliderchange(slider21);
+  load_pending = 1;
+  load_wait = time_precise();
+);
+
+// ---- pick up the folder the helper script delivered ----
+load_now = time_precise();
+(load_now - load_poll) > 0.2 ? ( load_poll = load_now; check_load_file(); );
+
 // ---- status strip (the plugin name is already in REAPER's title bar) ----
 loaded = 0;
 i = 0;
@@ -1054,12 +1196,21 @@ slider13 == 0 ? sprintf(#laststr, "Last: slot %d", last_slot+1) : (
   layer_name(last_layer);
   sprintf(#laststr, "Last: %s, slot %d", #layname, last_slot+1);
 );
+// Waiting for the helper script: ask while it is plausible that a folder is
+// still being picked, then mention a miss for a while, then go quiet again.
+ld_wait = time_precise() - load_wait;
+load_pending && ld_wait < 60 ? (
+  ld_wait > 20 ? strcpy(#ldmsg, "no folder received")
+               : strcpy(#ldmsg, "choose a folder ...");
+) : (
+  strcpy(#ldmsg, "");
+);
 
 gfx_setfont(1, "Arial", 12);
 gfx_set(0.05, 0.30, 0.60, 1);
 gfx_x = 12; gfx_y = 12;
-gfx_printf("Slots %d/%d loaded    Triggers %d    Voices %d/%d    %s",
-           loaded, vis, trigger_count, voices_active, VOICES, #laststr);
+gfx_printf("Slots %d/%d loaded    Triggers %d    Voices %d/%d    %s    %s",
+           loaded, vis, trigger_count, voices_active, VOICES, #laststr, #ldmsg);
 
 // ---- Clear All button ----
 gfx_set(0.86, 0.86, 0.88, 1);
@@ -1102,6 +1253,17 @@ loop(rows, (
                strcpy(#buf, "vel 127");
   gfx_x = pad + 8; gfx_y = y0 + 38;
   gfx_drawstr(#buf);
+
+  // one-click folder load for this row
+  lb_show ? (
+    lb_hov = (lb_over == layer);
+    gfx_setfont(1, "Arial", 12);
+    gfx_set(0.86, 0.86, 0.88, 1);
+    gfx_rect(lb_x, y0 + lb_y, lb_w, lb_h);
+    gfx_set(lb_hov ? 0.05 : 0.25, lb_hov ? 0.05 : 0.25, lb_hov ? 0.07 : 0.28, 1);
+    gfx_x = lb_x + 8; gfx_y = y0 + lb_y + 4;
+    gfx_drawstr("Load");
+  );
 
   layer += 1;
 ));
