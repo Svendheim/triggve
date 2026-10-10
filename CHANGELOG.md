@@ -7,33 +7,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 releases (`1.0.1`, `1.0.2`, …). Earlier development used beta names
 (`beta1`, `beta2`).
 
-## [Unreleased]
-
-### Added
-- **One-click folder loading** — every row in the plugin window has a **Load** button. It asks `scripts/Triggve_Load.lua` to open REAPER's native file picker; the folder of whatever sample you pick fills that row with its first 8 WAV/OGG/FLAC files in name order (extras ignored, slots the folder cannot fill cleared, playing voices faded). No drag & drop involved, so loading works on Wayland regardless of the compositor regression below.
-- **`install.sh`** — one command installs or upgrades both parts: the JSFX to `Effects/Triggve/`, the loader script to `Scripts/`, and a line in `Scripts/__startup.lua` so REAPER starts the loader itself. Re-running it is safe, and an existing `__startup.lua` is kept.
-- **Folder-loader hand-off** — the plugin and the script exchange a request id, so a hand-off file left on disk can never be applied twice or to the wrong instance; state from a project saved before this change still loads.
-- **Known Limitations note** — the docs now record that GNOME 51 / mutter 51 broke Wayland→XWayland drag-and-drop desktop-side (Ubuntu LP #2168597), with workarounds: load via REAPER's Media Explorer, or drag from an X11 file manager.
-
-### Changed
-- **Documentation split** — `README.md` is now installation and usage only, and everything technical (control reference, detector and MIDI behaviour, audio engine, the loader handshake, what a project stores, limitations) moved to `TECHNICAL.md`.
-- **README installation is now `git clone` + `./install.sh`**, with the upgrade path being the same command after a `git pull`; drag & drop is documented as the per-slot shortcut it is rather than the main loading path.
-- **New UI screenshot** — showing MIDI mode with all four velocity zones loaded.
-- **Status line reports folder loading** — `choose a folder ...` while a request is open, `no folder received` when nothing came back.
-- **Version number moved into the plugin window** — `desc` no longer carries it, so REAPER's plugin list shows a clean **Triggve**; the version is now drawn just left of the **Clear All** button instead.
-
-## [1.0] — 2026-10-07
+## [1.0] — 2026-10-10
 
 First stable release — the feature-complete plugin. Everything below is what
 went into 1.0; later releases only fix and refine it.
 
 ### Added
+- **One-click folder loading** — every row in the plugin window has a **Load** button. It asks `scripts/Triggve_Load.lua` to open REAPER's native file picker; the folder of whatever sample you pick fills that row with its first 8 WAV/OGG/FLAC files in name order (extras ignored, slots the folder cannot fill cleared, playing voices faded out first). No drag & drop involved, so loading works on Wayland regardless of the compositor regression recorded in `TECHNICAL.md`.
+- **Folder-loader hand-off** — plugin and script exchange a request id, so a hand-off file left on disk can never be applied twice, to the wrong instance, or after a project is moved to another machine.
+- **`install.sh`** — one command installs or upgrades both parts: the JSFX to `Effects/Triggve/`, the loader script to `Scripts/`, and a line in `Scripts/__startup.lua` so REAPER starts the loader itself. Re-running it is safe, and an existing `__startup.lua` is kept.
 - **MIDI triggering** — new **Trigger Source** control (Audio / MIDI, default **MIDI**). Note-ons are drained once per block in `@block` and fired inside `@sample` at their **exact sample offset**, so timing is sample-accurate at any audio block size. Note-ons with velocity 0 are treated as note-offs and never trigger.
 - **MIDI velocity zones** — the four rows are now fixed zones driven by note velocity: **Low 1–40**, **Medium 41–89**, **Hard 90–126**, **Rimshot 127**. Empty zones fall back to the nearest loaded zone, so a hit is never dropped.
 - **MIDI Passthrough** toggle (default **On**). Off swallows the note-on/note-off messages Triggve consumes; every other event (CC, pitch bend, program change) still flows downstream.
 - **Click-free voice release** — a voice that gets stolen from the pool, or whose slot is unloaded or re-loaded while it is still playing, now hands off to a 32-voice release pool and ramps to silence over ~4 ms instead of being cut hard. The main voice slot frees up immediately, so the incoming hit still starts with **zero added latency**.
-- **Source-aware GUI** — MIDI mode shows the four zone rows and a `N/32` status; Audio mode shows a single 8-slot **Hits** bank and a `N/8` status.
-- **Documentation** — README gains **Known Limitations** and a **Test Checklist**; the feature roadmap is replaced by a short **Versioning** statement.
+- **Source-aware GUI** — MIDI mode shows the four zone rows and a `Slots N/32 loaded` status; Audio mode shows a single 8-slot **Hits** bank and `Slots N/8 loaded`.
+- **Documentation** — two documents, each doing one job: `README.md` for installation and usage, `TECHNICAL.md` for the control reference, detector and MIDI behaviour, the audio engine, the loader handshake, what a project stores, and **Known Limitations** — including the GNOME 51 / mutter 51 Wayland→XWayland drag-and-drop regression (Ubuntu LP #2168597) and the workarounds.
 
 ### Changed
 - **Audio triggers fire immediately at the threshold crossing.** The ~1 ms velocity-measurement window is gone: no more added latency per triggered voice, which removes the comb filtering against the dry input at Mix < 1. Voice gain still converges — the per-voice 25 ms peak tracker refines it *after* the voice has started.
@@ -44,6 +32,9 @@ went into 1.0; later releases only fix and refine it.
 - **Voices snapshot their length and channel count at trigger time** (`v_end` / `v_nch`), so re-loading or clearing a slot can no longer stretch, shorten, or misread a voice that is already playing.
 - **Source-aware control panel** — the detector faders (Threshold / Attack / Release / Holdoff / Hysteresis) are hidden in MIDI mode, and **MIDI Passthrough** is hidden in Audio mode, so only live controls are shown. The parameters still exist and keep their values; switching source brings them back.
 - **Mix is shown in the MIDI view too** — the MIDI panel is now **Output Gain / Mix** on top with the dropdowns below (fixes Mix being hidden from the MIDI view in the previous build).
+- **Status line reports folder loading** — `choose a folder ...` while a Load request is open, `no folder received` when nothing came back.
+- **Version number lives in the plugin window** — `desc` no longer carries it, so REAPER's plugin list shows a clean **Triggve**; the version is drawn just left of the **Clear All** button instead.
+- **Installation is `git clone` + `./install.sh`**, and upgrading is the same command after a `git pull`. Drag & drop stays as the per-slot shortcut it is, not the main loading path. New UI screenshot shows MIDI mode with all four velocity zones loaded.
 
 ### Removed
 - Velocity-layer boundary sliders (10–12) and dBFS boundary classification. Slider numbers 10–12 stay unallocated on purpose, so boundary values saved by beta2 projects cannot shift into the new MIDI controls.
