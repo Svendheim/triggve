@@ -88,7 +88,7 @@ depends on desktop drag & drop working.
   is click-free.
 - The status line says `choose a folder ...` while the picker is open, and
   `no folder received` if nothing came back — usually because the helper script
-  is not running (see Installation step 2 / `install.sh`).
+  is not running, which `install.sh` (or Installation, steps 2–3) takes care of.
 - The button needs a little room under the zone name, so it disappears if the
   plugin window is squeezed very short. Two hidden parameters carry the request
   between plug-in and script; they are stored with the project like everything
