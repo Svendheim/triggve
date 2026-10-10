@@ -2,65 +2,65 @@
   <img src="triggve-logo.jpeg" alt="Triggve logo" width="420">
 </p>
 
-A lightweight, 100% vibecoded low-latency REAPER JSFX drum replacement and sample triggering plugin for Linux and cross-platform REAPER environments. Current version: **1.0**.
+A lightweight, 100% vibecoded low-latency REAPER JSFX drum replacement and sample
+triggering plugin for Linux and cross-platform REAPER environments. Current
+version: **1.0**.
 
-`Triggve` turns drum hits into samples, triggered by either **audio transients** (an envelope detector with threshold, attack/release, hysteresis, and holdoff) or **MIDI note-ons** (parsed per block, fired at the event's exact sample offset). MIDI velocity picks one of four fixed **velocity zones** — **Low** (1–40), **Medium** (41–89), **Hard** (90–126), **Rimshot** (127); audio uses a single 8-slot bank and fires immediately at the threshold crossing. Each zone/bank holds up to 8 samples, picked with **Single**, **Round-robin**, or **Random (no immediate repeat)** selection. By default the dry input is muted (**Mix** = 1), so the plugin acts as a full drum replacement.
+Triggve turns drum hits into samples. Trigger from **audio transients** or from
+**MIDI note-ons**, load one folder per articulation, and play up to 32 samples
+with overlapping, click-free voices. By default the dry input is replaced
+(**Mix** = 1), so it acts as a full drum replacement.
+
+<p align="center">
+  <img src="triggve-gui.png" alt="Triggve plugin window, MIDI mode, four loaded velocity zones" width="720">
+</p>
+
+The controls reference, detector and MIDI behaviour, what gets saved in a project,
+and the known limitations live in **[TECHNICAL.md](TECHNICAL.md)**.
 
 ## Installation
 
-Needs REAPER **6.29 or newer** (the version where JSFX can resample samples to
-the project rate — any current REAPER 7 build is fine).
-
-### Linux and macOS
+REAPER **6.29 or newer** (any current REAPER 7 build is fine).
 
 ```bash
 git clone https://github.com/svendheim/triggve.git
 cd triggve && ./install.sh
 ```
 
-Then **restart REAPER**. Add Triggve to a track (**Add FX → JS: Triggve**), open
-it and press `Load` on a row: REAPER's file picker opening is the proof the
-loader is running.
+Then **restart REAPER**. That is the whole installation: `install.sh` copies the
+plugin and its folder loader into REAPER's resource path and makes REAPER start
+the loader at launch — the loader is what the plugin's **Load** buttons talk to.
+It finds your resource path by itself, and running it again is harmless.
 
-`install.sh` is the whole installation. It copies the plug-in to
-`<resource path>/Effects/Triggve/`, the folder loader to
-`<resource path>/Scripts/`, and adds one `dofile` line to
-`<resource path>/Scripts/__startup.lua` so REAPER starts the loader at launch —
-that loader is what the plugin's **Load** buttons talk to. It finds your
-resource path by itself and re-running it is harmless.
+To check it worked: add **JS: Triggve** to a track, open it and press `Load` on a
+row. REAPER's file picker opening is the proof.
 
-Upgrading is the same command:
+**Upgrading** is the same command:
 
 ```bash
 cd triggve && git pull && ./install.sh
 ```
 
-Portable install, or Windows? Tell it where REAPER keeps its settings (Windows
-is usually `%APPDATA%\REAPER`):
+Portable install, or Windows? Tell the script where REAPER keeps its settings
+(Windows is usually `%APPDATA%\REAPER`):
 
 ```bash
 REAPER_DIR="$HOME/portable/REAPER" ./install.sh
 ```
 
-### Manual (any platform)
+### Manual install
 
 Find your resource path in REAPER under **Options → Show REAPER resource path**,
-then:
+then copy `Triggve.jsfx` to `<resource path>/Effects/Triggve/` and
+`scripts/Triggve_Load.lua` to `<resource path>/Scripts/`. For the `Load` buttons
+to work, also add this one line to
+`<resource path>/Scripts/__startup.lua`, creating the file if you don't have one:
 
-1. Copy `Triggve.jsfx` to `<resource path>/Effects/Triggve/`.
-2. Copy `scripts/Triggve_Load.lua` to `<resource path>/Scripts/`.
-3. Put this one line in `<resource path>/Scripts/__startup.lua`, creating the
-   file if you don't already have one, so the loader runs for the whole session:
+```lua
+dofile(reaper.GetResourcePath() .. "/Scripts/Triggve_Load.lua")
+```
 
-   ```lua
-   dofile(reaper.GetResourcePath() .. "/Scripts/Triggve_Load.lua")
-   ```
-
-4. Restart REAPER, or press `F5` in the FX browser to rescan the JSFX and run
-   `Script: Triggve_Load.lua` once from the action list.
-
-Without steps 2–3 the plugin still works, but only through drag & drop: the
-`Load` buttons have nothing to ask, and say `no folder received`.
+Without it the plugin still works, but only through drag & drop.
 
 ### Uninstall
 
@@ -68,71 +68,71 @@ Delete `<resource path>/Effects/Triggve/` and
 `<resource path>/Scripts/Triggve_Load.lua`, and remove the line marked
 `Triggve folder loader` from `<resource path>/Scripts/__startup.lua`.
 
-<p align="center">
-  <img src="triggve-gui.png" alt="Triggve UI" width="640">
-</p>
+## Using Triggve
 
-## Loading samples
+1. Add **JS: Triggve** to the drum track (or to a track fed by your pad
+   controller / MIDI drum source).
+2. Set **Trigger Source** to **MIDI** (notes trigger samples) or **Audio** (hits
+   on the incoming audio trigger samples).
+3. Press **Load** on a row and pick the folder for that articulation. The row
+   fills itself.
+4. Play. A loaded slot is tinted green with a green dot, the row of the last
+   trigger is highlighted, and the status line counts hits and active voices.
 
-**Click `Load` on a row.** The plugin asks the helper script to open REAPER's
-native file picker; choose *any* file from the folder you want and that
-folder's samples are loaded straight into the row — no dragging, so nothing
-depends on desktop drag & drop working.
+**MIDI velocity picks the row.** These ranges are fixed, so they are the ones to
+aim for when recording or quantising velocities:
 
-- Files are taken in **name order**, and the row's **first 8** WAV / OGG / FLAC
-  files are used. Anything past that is ignored, and slots the folder cannot
-  fill are emptied, so the row ends up holding exactly what you pointed at.
-- Audio mode has one row (**Hits**), MIDI mode has one per velocity zone, so a
-  drum kit is four clicks: one folder per articulation.
-- Reloaded slots fade out any voice still playing them, so loading mid-playback
-  is click-free.
-- The status line says `choose a folder ...` while the picker is open, and
-  `no folder received` if nothing came back — usually because the helper script
-  is not running, which `install.sh` (or Installation, steps 2–3) takes care of.
-- The button needs a little room under the zone name, so it disappears if the
-  plugin window is squeezed very short. Two hidden parameters carry the request
-  between plug-in and script; they are stored with the project like everything
-  else and are not meant to be touched.
+| Row | MIDI velocity | Use it for |
+|-----|---------------|------------|
+| Low | 1–40 | light hits, ghosts |
+| Medium | 41–89 | everyday playing |
+| Hard | 90–126 | accents |
+| Rimshot | 127 | your hardest articulation |
 
-**Drag & drop still works** for filling a single slot: drag a file onto a slot,
-or several files onto the grid. Right-click a slot (or its `x`) to unload it, or
-**Clear All** to empty the plugin.
+In **Audio** mode there is one row, the **Hits** bank: every detected hit plays
+from it, and the detector controls appear instead of the MIDI ones.
 
-## Controls
+### Loading samples
 
-All eleven controls are drawn in the plugin's own window, two per row (the dropdowns sit at the bottom). They are hidden REAPER parameters, so they remain automatable and are stored with the project. The panel is **source-aware**: Audio shows the detector faders, MIDI shows the MIDI controls, and only the controls that actually do something for the current **Trigger Source** are displayed. Hidden controls keep their values and stay automatable. Drag a control to set it, or hover it and use the mouse wheel (hold **Shift** for coarser steps).
+Press **`Load`** on a row, then pick *any* file from the folder you want — REAPER
+opens its own picker, so nothing depends on desktop drag & drop. The folder's
+**first 8** WAV / OGG / FLAC files, in name order, become that row. Files past
+the eighth are ignored, and any slot the folder cannot fill is emptied, so a row
+always holds exactly what you pointed at. A kit is four clicks: one folder per
+articulation.
 
-| # | Control | Default | Range | One-line summary |
-|---|---------|---------|-------|------------------|
-| 1 | Threshold (dB) | −18 | −60 … 0 | How loud a hit must be to trigger (Audio source only). |
-| 2 | Envelope Attack (ms) | 0.3 | 0.1 … 50 | How quickly the detector reacts to a rising hit. |
-| 3 | Envelope Release (ms) | 5 | 1 … 45 | How quickly the detector lets go after a hit (also sets re-arm speed). |
-| 4 | Retrigger Holdoff (ms) | 20 | 1 … 100 | Minimum time between two triggers. |
-| 5 | Hysteresis (dB) | 6 | 0 … 24 | How far the signal must drop before the detector can fire again. |
-| 6 | Mix | 1.0 | 0 … 1 | Blend of dry input vs. triggered samples. |
-| 7 | Dynamic Velocity | On | Off / On | Gain follows hit strength (audio peak / MIDI velocity). Off = samples play at their original volume. |
-| 8 | Sample Selection | Random | Single / Round-robin / Random | Which loaded slot plays next within the chosen zone/bank. |
-| 9 | Output Gain (dB) | 0 | −24 … +24 | Makeup gain for the triggered samples. |
-| 13 | Trigger Source | MIDI | Audio / MIDI | What fires the samples: the audio detector or incoming MIDI note-ons. |
-| 15 | MIDI Passthrough | On | Off / On | On: notes continue downstream. Off: notes Triggve consumes are swallowed. |
+- **Drag & drop** still works for a single slot, or several files onto the grid.
+- **Unload** one slot with its `x` (or right-click it); **Clear All** empties
+  everything.
+- Loading while it plays is safe: any voice in the way fades out first.
+- `choose a folder ...` in the status line means the picker is open.
+  `no folder received` means nothing came back, usually because the loader is not
+  running — see Installation.
 
-### How the detector works (Audio source)
-The plugin follows the input with an **envelope**: it rises quickly (Attack) when a hit arrives and falls slowly (Release) when it ends. A trigger fires **immediately** when the envelope crosses the **Threshold**. After firing, the detector is "disarmed" and only re-arms once the envelope falls below *Threshold minus Hysteresis*; the **Holdoff** also enforces a minimum gap between triggers. Release and Hysteresis together control how fast the next hit can be detected. Audio hits play from the single 8-slot **Hits** bank (slots 1–8); the MIDI zones stay hidden.
+### Getting it to sound right
 
-### How MIDI triggering works (MIDI source)
-MIDI is drained once per block in `@block` and queued; each note-on is fired inside `@sample` at its **exact sample offset**, so timing is sample-accurate regardless of the audio block size. Note-ons with velocity 0 are note-offs and are ignored. The note's **velocity picks the zone** — this is exact, unlike audio peak classification:
+| Want | Change |
+|------|--------|
+| Keep some of the original drum in the mix | lower **Mix** |
+| Samples louder or quieter | **Output Gain (dB)** |
+| Volume to follow how hard you hit (or MIDI velocity) | **Dynamic Velocity** |
+| Always the same sample | **Sample Selection → Single** |
+| Alternating samples for repeated hits | **Sample Selection → Round-robin** |
+| No obvious repetition | **Sample Selection → Random** |
+| Detect fewer ghost hits from audio | raise **Threshold**, raise **Retrigger Holdoff** |
+| Let the MIDI notes carry on to a synth as well | keep **MIDI Passthrough** on |
 
-- **Low** — velocity 1–40.
-- **Medium** — velocity 41–89.
-- **Hard** — velocity 90–126.
-- **Rimshot** — velocity 127 (a dedicated top-velocity articulation).
+The status line at the top shows how many slots are loaded, how many hits have
+triggered, how many voices are playing, and which slot last fired.
 
-A sample is then chosen **within that zone** using the Sample Selection mode; an empty zone falls back to the nearest loaded one. **Dynamic Velocity** decides whether gain also follows velocity (`vel / 127`) or every voice plays at full level — zone selection itself always applies. Note-ons on **any** MIDI channel trigger; with **MIDI Passthrough** On (default) the notes keep flowing downstream, e.g. to a soft synth later in the chain.
+### Saving and moving a project
 
-## Known Limitations
-
-- **On Wayland, drag & drop can break outside the plugin's control.** REAPER is an XWayland client on Linux, and **GNOME 51 / mutter 51** shipped a Wayland→XWayland drag-and-drop regression (Ubuntu LP #2168597) that was fixed upstream in October 2026. On an affected system drops fail into *any* REAPER window — the arrange view included — not just Triggve. This is why every row has a **Load** button: it goes through REAPER's own dialog instead of the desktop's drag-and-drop bridge. Failing that, load samples via REAPER's **Media Explorer**, or drag from an **X11** file manager (e.g. `GDK_BACKEND=x11 nautilus`, or Dolphin).
-- **The `Load` button needs the helper script running.** REAPER does the folder dialog and directory listing for the plugin, so the plugin alone cannot fill a row — `install.sh` (or Installation step 2) starts it at launch. Without it, clicking `Load` does nothing beyond the `no folder received` note in the status line.
+A project stores the **paths** to your samples, not the audio. Reopening the
+project re-reads those files, so keep the kit where it was: move or rename the
+folder and those slots show `load error` (they stay silent, the rest keep
+working). Fix it by pressing `Load` on the affected rows again. Same goes for
+opening a project on another machine — details in
+[TECHNICAL.md](TECHNICAL.md#what-a-project-stores).
 
 ## License
 
